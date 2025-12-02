@@ -79,9 +79,10 @@ class ChatGPTAPI(Base):
         temperature=1.0,
         context_flag=False,
         context_paragraph_limit=0,
+        glossary_path=None,
         **kwargs,
     ) -> None:
-        super().__init__(key, language)
+        super().__init__(key, language, glossary_path=glossary_path)
         self.key_len = len(key.split(","))
         self.openai_client = OpenAI(api_key=next(self.keys), base_url=api_base)
         self.api_base = api_base
@@ -116,6 +117,9 @@ class ChatGPTAPI(Base):
         self.batch_info_cache = None
         self.result_content_cache = {}
         self._api_lock = Lock()
+        # Initialize batch_base_dir to current directory as default
+        self.batch_base_dir = os.getcwd()
+        self.book_name = None
 
     def rotate_key(self):
         with self._api_lock:
@@ -131,7 +135,8 @@ class ChatGPTAPI(Base):
             text=text, language=self.language, crlf="\n"
         )
 
-        sys_content = self.system_content or self.prompt_sys_msg.format(crlf="\n")
+        # Use glossary-enhanced system message if available
+        sys_content = self.build_system_message_with_glossary(text)
         messages = [
             {"role": "system", "content": sys_content},
         ]
@@ -153,6 +158,51 @@ class ChatGPTAPI(Base):
                 }
             )
         return messages
+    
+    def build_system_message_with_glossary(self, text=None):
+        """Build system message with glossary instructions if available."""
+        base_msg = self.system_content or self.prompt_sys_msg.format(
+            crlf="\n", language=self.language
+        )
+        
+        if self.glossary_manager:
+            glossary_text = ""
+            if self.glossary_manager.get_glossary_count() > 0:
+                glossary_text = self.glossary_manager.get_glossary_text(text_chunk=text)
+                if glossary_text:
+                    # Debug: Show what terms are being injected
+                    # print(f"🔍 Context-Aware Glossary Injected:\n{glossary_text.strip()}")
+                    pass
+
+            # Optimization: If we already have a substantial glossary (e.g. > 500 terms),
+            # stop asking for NEW_TERMS to save GPU computation time.
+            if self.glossary_manager.get_glossary_count() >= 500:
+                glossary_instructions = f"""
+{glossary_text}
+【重要翻譯規則 - 必須遵守】
+1. 若文本中出現對照表中的專有名詞，必須使用表中的翻譯
+2. 保持專有名詞翻譯的一致性
+"""
+            else:
+                glossary_instructions = f"""
+{glossary_text}
+【重要翻譯規則 - 必須遵守】
+1. 若文本中出現對照表中的專有名詞，必須使用表中的翻譯
+2. 若遇到新的【人名】，請在翻譯結果的最後一行（單獨一行）標註：
+   NEW_TERMS: {{"原文英文": "翻譯中文"}}
+   例如：NEW_TERMS: {{"John Smith": "約翰·史密斯"}}
+3. 保持專有名詞翻譯的一致性
+4. NEW_TERMS 標註必須是有效的 JSON 格式，且必須在翻譯文字的最後
+5. 【重要】NEW_TERMS 標註是翻譯輸出的一部分，不是說明或註解，必須包含在輸出中
+"""
+                # 如果 base_msg 中有「不要輸出任何說明、註解或錯誤訊息」的內容，
+                # 需要明確說明 NEW_TERMS 是例外
+                if "不要輸出" in base_msg or "不要" in base_msg:
+                    glossary_instructions += "\n注意：NEW_TERMS 標註是必需的輸出格式，不是說明或註解，必須包含。\n"
+            
+            return f"{base_msg}\n\n{glossary_instructions}"
+        
+        return base_msg
 
     def create_chat_completion(self, text):
         messages = self.create_messages(text, self.create_context_messages())
@@ -219,12 +269,28 @@ class ChatGPTAPI(Base):
             except Exception as e:
                 print(str(e))
                 return
+        
+        # Extract and process new proper nouns if glossary is enabled
+        if self.glossary_manager:
+            # Debug: Log that we're attempting to extract terms
+            if self.glossary_manager.get_glossary_count() == 0:
+                print(f"📚 Glossary enabled (empty), looking for NEW_TERMS in translation...")
+            t_text = self.glossary_manager.extract_new_terms(t_text)
 
         # todo: Determine whether to print according to the cli option
         if needprint:
             print("[bold green]" + re.sub("\n{3,}", "\n\n", t_text) + "[/bold green]")
 
-        time.time() - start_time
+        elapsed_time = time.time() - start_time
+        from book_maker.utils import num_tokens_from_text
+        token_count = num_tokens_from_text(text)
+        
+        # Update stats
+        self.total_tokens += token_count
+        self.total_time += elapsed_time
+        
+        tps = token_count / elapsed_time if elapsed_time > 0 else 0
+        print(f"⚡ Speed: {tps:.1f} tokens/s ({token_count} tokens in {elapsed_time:.1f}s)")
         # print(f"translation time: {elapsed_time:.1f}s")
 
         return t_text
@@ -309,10 +375,13 @@ class ChatGPTAPI(Base):
         # Create a list of original texts and add clear numbering markers to each paragraph
         formatted_text = ""
         for i, p in enumerate(plist, 1):
-            temp_p = copy(p)
-            for sup in temp_p.find_all("sup"):
-                sup.extract()
-            para_text = temp_p.get_text().strip()
+            if isinstance(p, str):
+                para_text = p.strip()
+            else:
+                temp_p = copy(p)
+                for sup in temp_p.find_all("sup"):
+                    sup.extract()
+                para_text = temp_p.get_text().strip()
             # Using special delimiters and clear numbering
             formatted_text += f"PARAGRAPH {i}:\n{para_text}\n\n"
 
@@ -544,7 +613,12 @@ class ChatGPTAPI(Base):
         print(f"Using model list {model_list}")
         self.model_list = cycle(model_list)
 
-    def batch_init(self, book_name):
+    def batch_init(self, book_name, book_path=None):
+        # If book_path is provided, use its directory; otherwise use current directory
+        if book_path:
+            self.batch_base_dir = os.path.dirname(os.path.abspath(book_path)) or os.getcwd()
+        else:
+            self.batch_base_dir = os.getcwd()
         self.book_name = self.sanitize_book_name(book_name)
 
     def add_to_batch_translate_queue(self, book_index, text):
@@ -558,10 +632,14 @@ class ChatGPTAPI(Base):
         return sanitized_book_name
 
     def batch_metadata_file_path(self):
-        return os.path.join(os.getcwd(), "batch_files", f"{self.book_name}_info.json")
+        batch_files_dir = os.path.join(self.batch_base_dir, "batch_files")
+        os.makedirs(batch_files_dir, exist_ok=True)
+        return os.path.join(batch_files_dir, f"{self.book_name}_info.json")
 
     def batch_dir(self):
-        return os.path.join(os.getcwd(), "batch_files", self.book_name)
+        batch_files_dir = os.path.join(self.batch_base_dir, "batch_files")
+        os.makedirs(batch_files_dir, exist_ok=True)
+        return os.path.join(batch_files_dir, self.book_name)
 
     def custom_id(self, book_index):
         return f"{self.book_name}-{book_index}"

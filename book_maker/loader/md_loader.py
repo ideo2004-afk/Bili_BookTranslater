@@ -1,4 +1,5 @@
 import sys
+import pickle
 from pathlib import Path
 
 from book_maker.utils import prompt_config_to_kwargs
@@ -23,6 +24,8 @@ class MarkdownBookLoader(BaseBookLoader):
         context_paragraph_limit=0,
         temperature=1.0,
         source_lang="auto",
+        parallel_workers=1,
+        glossary_path=None,
     ) -> None:
         self.md_name = md_name
         self.translate_model = model(
@@ -31,6 +34,7 @@ class MarkdownBookLoader(BaseBookLoader):
             api_base=model_api_base,
             temperature=temperature,
             source_lang=source_lang,
+            glossary_path=glossary_path,
             **prompt_config_to_kwargs(prompt_config),
         )
         self.is_test = is_test
@@ -98,7 +102,7 @@ class MarkdownBookLoader(BaseBookLoader):
                 batch_text = "\n\n".join(paragraphs)
                 if self._is_special_text(batch_text):
                     continue
-                if not self.resume or index >= p_to_save_len:
+                if not self.resume or index // self.batch_size >= p_to_save_len:
                     try:
                         max_retries = 3
                         retry_count = 0
@@ -119,6 +123,10 @@ class MarkdownBookLoader(BaseBookLoader):
                     if not self.single_translate:
                         self.bilingual_result.append(batch_text)
                     self.bilingual_result.append(temp)
+                else:
+                    if not self.single_translate:
+                        self.bilingual_result.append(batch_text)
+                    self.bilingual_result.append(self.p_to_save[index // self.batch_size])
                 index += self.batch_size
                 if self.is_test and index > self.test_num:
                     break
@@ -158,15 +166,15 @@ class MarkdownBookLoader(BaseBookLoader):
 
     def _save_progress(self):
         try:
-            with open(self.bin_path, "w", encoding="utf-8") as f:
-                f.write("\n".join(self.p_to_save))
+            with open(self.bin_path, "wb") as f:
+                pickle.dump(self.p_to_save, f)
         except Exception as e:
             raise Exception("can not save resume file") from e
 
     def load_state(self):
         try:
-            with open(self.bin_path, encoding="utf-8") as f:
-                self.p_to_save = f.read().splitlines()
+            with open(self.bin_path, "rb") as f:
+                self.p_to_save = pickle.load(f)
         except Exception as e:
             raise Exception("can not load resume file") from e
 

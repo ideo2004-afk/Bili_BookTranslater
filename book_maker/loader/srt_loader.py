@@ -51,6 +51,7 @@ class SRTBookLoader(BaseBookLoader):
         self.accumulated_num = 1
         self.blocks = []
         self.single_translate = single_translate
+        self.context_flag = context_flag
 
         self.resume = resume
         self.bin_path = f"{Path(srt_name).parent}/.{Path(srt_name).stem}.temp.bin"
@@ -59,6 +60,34 @@ class SRTBookLoader(BaseBookLoader):
 
     def _make_new_book(self, book):
         pass
+
+    def estimate(self):
+        print("Calculating estimate...")
+        from book_maker.utils import num_tokens_from_text
+        
+        try:
+            with open(f"{self.srt_name}", encoding="utf-8") as f:
+                self.blocks = self._parse_srt(f.read())
+        except Exception as e:
+            raise Exception("can not load file") from e
+            
+        total_tokens = 0
+        total_paragraphs = 0
+        
+        for block in self.blocks:
+            text = block.get("text", "")
+            if not text:
+                continue
+            total_tokens += num_tokens_from_text(text)
+            total_paragraphs += 1
+            
+        print("\n" + "="*50)
+        print("📊 Estimation Summary")
+        print("="*50)
+        print(f"Book: {self.srt_name}")
+        print(f"Total Blocks: {total_paragraphs}")
+        print(f"Total Estimated Tokens: {total_tokens:,}")
+        print("="*50 + "\n")
 
     def _parse_srt(self, srt_text):
         blocks = re.split("\n\s*\n", srt_text)
@@ -255,7 +284,78 @@ class SRTBookLoader(BaseBookLoader):
             print("you can resume it next time")
             self._save_progress()
             self._save_temp_book()
+            
+            # Print Performance Summary
+            if hasattr(self.translate_model, 'total_tokens') and hasattr(self.translate_model, 'total_time'):
+                total_tokens = self.translate_model.total_tokens
+                total_time = self.translate_model.total_time
+                avg_speed = total_tokens / total_time if total_time > 0 else 0
+                
+                print("\n" + "="*50)
+                print("📊 Translation Performance Summary")
+                print("="*50)
+                print(f"Model: {self.translate_model.model}")
+                if hasattr(self, 'accumulated_num'):
+                    print(f"Accumulated Num: {self.accumulated_num}")
+                if hasattr(self, 'context_flag'):
+                    print(f"Use Context: {self.context_flag}")
+                print(f"Total Tokens Processed: {total_tokens:,}")
+                print(f"Total Translation Time: {total_time:.2f}s")
+                print(f"Average Speed: {avg_speed:.2f} tokens/s")
+                print("="*50 + "\n")
+                
+                # Optional: Save to file
+                try:
+                    with open("translation_stats.txt", "a", encoding="utf-8") as f:
+                        f.write(f"\n--- {time.strftime('%Y-%m-%d %H:%M:%S')} ---\n")
+                        f.write(f"Book: {self.srt_name}\n")
+                        f.write(f"Model: {self.translate_model.model}\n")
+                        if hasattr(self, 'accumulated_num'):
+                            f.write(f"Accumulated Num: {self.accumulated_num}\n")
+                        if hasattr(self, 'context_flag'):
+                            f.write(f"Use Context: {self.context_flag}\n")
+                        f.write(f"Total Tokens: {total_tokens}\n")
+                        f.write(f"Total Time: {total_time:.2f}s\n")
+                        f.write(f"Avg Speed: {avg_speed:.2f} t/s\n")
+                except Exception as e:
+                    print(f"Failed to save stats: {e}")
+            
             sys.exit(0)
+            
+        # Print Performance Summary (Success Case)
+        if hasattr(self.translate_model, 'total_tokens') and hasattr(self.translate_model, 'total_time'):
+            total_tokens = self.translate_model.total_tokens
+            total_time = self.translate_model.total_time
+            avg_speed = total_tokens / total_time if total_time > 0 else 0
+            
+            print("\n" + "="*50)
+            print("📊 Translation Performance Summary")
+            print("="*50)
+            print(f"Model: {self.translate_model.model}")
+            if hasattr(self, 'accumulated_num'):
+                print(f"Accumulated Num: {self.accumulated_num}")
+            if hasattr(self, 'context_flag'):
+                print(f"Use Context: {self.context_flag}")
+            print(f"Total Tokens Processed: {total_tokens:,}")
+            print(f"Total Translation Time: {total_time:.2f}s")
+            print(f"Average Speed: {avg_speed:.2f} tokens/s")
+            print("="*50 + "\n")
+            
+            # Optional: Save to file
+            try:
+                with open("translation_stats.txt", "a", encoding="utf-8") as f:
+                    f.write(f"\n--- {time.strftime('%Y-%m-%d %H:%M:%S')} ---\n")
+                    f.write(f"Book: {self.srt_name}\n")
+                    f.write(f"Model: {self.translate_model.model}\n")
+                    if hasattr(self, 'accumulated_num'):
+                        f.write(f"Accumulated Num: {self.accumulated_num}\n")
+                    if hasattr(self, 'context_flag'):
+                        f.write(f"Use Context: {self.context_flag}\n")
+                    f.write(f"Total Tokens: {total_tokens}\n")
+                    f.write(f"Total Time: {total_time:.2f}s\n")
+                    f.write(f"Avg Speed: {avg_speed:.2f} t/s\n")
+            except Exception as e:
+                print(f"Failed to save stats: {e}")
 
     def _save_temp_book(self):
         for i, block in enumerate(self.blocks):

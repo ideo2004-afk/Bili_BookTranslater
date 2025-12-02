@@ -43,6 +43,7 @@ GEMINIFLASH_MODEL_LIST = [
     "gemini-1.5-flash-latest",
     "gemini-1.5-flash-001",
     "gemini-1.5-flash-002",
+    "gemini-1.5-flash-002",
     "gemini-2.0-flash-exp",
     "gemini-2.5-flash-preview-04-17",
 ]
@@ -65,7 +66,8 @@ class Gemini(Base):
         temperature=1.0,
         **kwargs,
     ) -> None:
-        super().__init__(key, language)
+        glossary_path = kwargs.get("glossary_path")
+        super().__init__(key, language, glossary_path=glossary_path)
         self.context_flag = context_flag
         self.prompt = (
             prompt_template
@@ -100,7 +102,45 @@ class Gemini(Base):
         genai.configure(api_key=next(self.keys))
         self.create_convo()
 
+    def build_system_message_with_glossary(self, text=None):
+        """Build system message with glossary instructions if available."""
+        base_msg = self.prompt_sys_msg or ""
+        
+        if self.glossary_manager:
+            glossary_text = ""
+            if self.glossary_manager.get_glossary_count() > 0:
+                glossary_text = self.glossary_manager.get_glossary_text(text_chunk=text)
+
+            # Optimization: If we already have a substantial glossary (e.g. > 500 terms),
+            # stop asking for NEW_TERMS to save GPU computation time.
+            if self.glossary_manager.get_glossary_count() >= 500:
+                glossary_instructions = f"""
+{glossary_text}
+【重要翻譯規則 - 必須遵守】
+1. 若文本中出現對照表中的專有名詞，必須使用表中的翻譯
+2. 保持專有名詞翻譯的一致性
+"""
+            else:
+                glossary_instructions = f"""
+{glossary_text}
+【重要翻譯規則 - 必須遵守】
+1. 若文本中出現對照表中的專有名詞，必須使用表中的翻譯
+2. 若遇到新的【人名】，請在翻譯結果的最後一行（單獨一行）標註：
+   NEW_TERMS: {{"原文英文": "翻譯中文"}}
+   例如：NEW_TERMS: {{"John Smith": "約翰·史密斯"}}
+3. 保持專有名詞翻譯的一致性
+4. NEW_TERMS 標註必須是有效的 JSON 格式，且必須在翻譯文字的最後
+5. 【重要】NEW_TERMS 標註是翻譯輸出的一部分，不是說明或註解，必須包含在輸出中
+"""
+                if "不要輸出" in base_msg or "不要" in base_msg:
+                    glossary_instructions += "\n注意：NEW_TERMS 標註是必需的輸出格式，不是說明或註解，必須包含。\n"
+            
+            return f"{base_msg}\n\n{glossary_instructions}"
+        
+        return base_msg
+
     def translate(self, text):
+        start_time = time.time()
         delay = 1
         exponential_base = 2
         attempt_count = 0
@@ -117,10 +157,25 @@ class Gemini(Base):
 
         while attempt_count < max_attempts:
             try:
+                if self.glossary_manager:
+                     sys_msg = self.build_system_message_with_glossary(text)
+                     # Re-create convo with new system message, preserving history
+                     old_history = self.convo.history
+                     model = genai.GenerativeModel(
+                        model_name=self.model,
+                        generation_config=generation_config,
+                        safety_settings=safety_settings,
+                        system_instruction=sys_msg,
+                     )
+                     self.convo = model.start_chat(history=old_history)
+
                 self.convo.send_message(
                     self.prompt.format(text=text, language=self.language)
                 )
                 t_text = self.convo.last.text.strip()
+                # Debug: Print raw response to check for NEW_TERMS
+                # print(f"🤖 Raw AI Response:\n{t_text}\n{'='*20}")
+                
                 # 检查是否包含特定标签,如果有则只返回标签内的内容
                 tag_pattern = (
                     r"<step3_refined_translation>(.*?)</step3_refined_translation>"
@@ -168,12 +223,56 @@ class Gemini(Base):
         else:
             self.convo.history = []
 
+        # Extract and process new proper nouns if glossary is enabled
+        if self.glossary_manager:
+            # Debug: Log that we're attempting to extract terms
+            if self.glossary_manager.get_glossary_count() == 0:
+                print(f"📚 Glossary enabled (empty), looking for NEW_TERMS in translation...")
+            t_text = self.glossary_manager.extract_new_terms(t_text)
+
         print("[bold green]" + re.sub("\n{3,}", "\n\n", t_text) + "[/bold green]")
+        
+        # Calculate speed and update stats
+        elapsed_time = time.time() - start_time
+        from book_maker.utils import num_tokens_from_text
+        token_count = num_tokens_from_text(text)
+        
+        self.total_tokens += token_count
+        self.total_time += elapsed_time
+        
+        tps = token_count / elapsed_time if elapsed_time > 0 else 0
+        print(f"⚡ Speed: {tps:.1f} tokens/s ({token_count} tokens in {elapsed_time:.1f}s)")
+
         # for rate limit(RPM)
         time.sleep(self.interval)
         if num:
             t_text = str(num) + "\n" + t_text
         return t_text
+
+    def translate_list(self, text_list):
+        # Join the list with a separator that is unlikely to appear in the text
+        # Using a distinct separator helps in splitting the text back correctly
+        sep = "\n\n"
+        combined_text = sep.join(text_list)
+        
+        # Translate the combined text
+        translated_text = self.translate(combined_text)
+        
+        # Split the translated text back into a list
+        # We try to split by the separator first
+        if not translated_text:
+            return []
+            
+        translated_list = translated_text.split(sep)
+        
+        # Handle cases where the number of items doesn't match
+        if len(translated_list) != len(text_list):
+            print(f"Warning: Translated list length ({len(translated_list)}) does not match input list length ({len(text_list)}). Fallback to line splitting or padding.")
+            # Fallback: try splitting by newlines if the count is way off, or just return what we have
+            # In a robust system, we might want to re-translate item by item here, but for now we return what we got.
+            # If the model merged lines, we might have fewer items.
+            
+        return translated_list
 
     def set_interval(self, interval):
         self.interval = interval

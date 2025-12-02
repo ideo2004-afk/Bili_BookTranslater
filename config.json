@@ -1,0 +1,17 @@
+{
+  "model": "chatgptapi",
+  "ollama_model": "gemma3:12b-it-qat",
+  "language": "zh-hant",
+  "temperature": 0.8,
+  "prompt": "prompt.json",
+  "google_api_key": "",
+  "openai_api_key": "",
+  "use_accumulated": true,
+  "accumulated_num": 800,
+  "resume": false,
+  "bilingual": true,
+  "output_dir": "/Users/ideo2004/Desktop",
+  "use_context": false,
+  "use_glossary": true,
+  "selected_model_display": "gemma3:12b-it-qat"
+}

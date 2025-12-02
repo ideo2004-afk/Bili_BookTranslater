@@ -1,7 +1,9 @@
-import re
-import backoff
 import logging
+import re
+import unicodedata
 from copy import copy
+
+import backoff
 
 logging.basicConfig(level=logging.WARNING)
 logger = logging.getLogger(__name__)
@@ -40,7 +42,7 @@ class EPUBBookLoaderHelper:
         jitter=None,
     )
     def translate_with_backoff(self, text, context_flag=False):
-        return self.translate_model.translate(text, context_flag)
+        return self.translate_model.translate(text)
 
     def deal_new(self, p, wait_p_list, single_translate=False):
         self.deal_old(wait_p_list, single_translate, self.context_flag)
@@ -55,7 +57,15 @@ class EPUBBookLoaderHelper:
         if not wait_p_list:
             return
 
-        result_txt_list = self.translate_model.translate_list(wait_p_list)
+        # Extract text from Tag objects if necessary
+        text_list = []
+        for p in wait_p_list:
+            if hasattr(p, 'text'):
+                text_list.append(p.text)
+            else:
+                text_list.append(str(p))
+
+        result_txt_list = self.translate_model.translate_list(text_list)
 
         for i in range(len(wait_p_list)):
             if i < len(result_txt_list):
@@ -118,6 +128,15 @@ def is_text_isbn(s):
     return bool(re.match(pattern, s))
 
 
+def is_text_symbols_only(text):
+    if text is None:
+        return False
+    stripped = "".join(ch for ch in text if not ch.isspace())
+    if not stripped:
+        return False
+    return all(unicodedata.category(ch)[0] in ("P", "S") for ch in stripped)
+
+
 def not_trans(s):
     return any(
         [
@@ -128,5 +147,6 @@ def not_trans(s):
             is_text_figure(s),
             is_text_digit_and_space(s),
             is_text_isbn(s),
+            is_text_symbols_only(s),
         ]
     )

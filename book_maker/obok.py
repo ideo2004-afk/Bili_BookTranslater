@@ -418,23 +418,38 @@ class KoboLibrary:
                     # appends the name of the file we're storing the kobodir location info to the above path
                     kobodir_cache_file = f"{str(kobodir_cache_dir)}/kobo_location"
 
-                    """if the above file does not exist, recursively searches from the root
-                    of the filesystem until kobodir is found and stores the location of kobodir
-                    in that file so this loop can be skipped in the future"""
+                    """if the above file does not exist, recursively searches from common
+                    locations (HOME directory) until kobodir is found and stores the location
+                    of kobodir in that file so this loop can be skipped in the future"""
                     original_stdout = sys.stdout
                     if not os.path.isfile(kobodir_cache_file):
-                        for root, _dirs, files in os.walk("/"):
-                            for file in files:
-                                if file == "Kobo.sqlite":
-                                    kobo_linux_path = str(root)
-                                    with open(
-                                        kobodir_cache_file,
-                                        "w",
-                                        encoding="utf-8",
-                                    ) as f:
-                                        sys.stdout = f
-                                        print(kobo_linux_path, end="")
-                                        sys.stdout = original_stdout
+                        # Search from HOME directory instead of root to avoid slow full system scan
+                        search_roots = [os.environ.get("HOME", "")]
+                        # Also try common Wine locations for Kobo Desktop under Wine
+                        if "WINEPREFIX" in os.environ:
+                            search_roots.append(os.environ["WINEPREFIX"])
+                        for search_root in search_roots:
+                            if not search_root or not os.path.isdir(search_root):
+                                continue
+                            for root, _dirs, files in os.walk(search_root):
+                                for file in files:
+                                    if file == "Kobo.sqlite":
+                                        kobo_linux_path = str(root)
+                                        with open(
+                                            kobodir_cache_file,
+                                            "w",
+                                            encoding="utf-8",
+                                        ) as f:
+                                            sys.stdout = f
+                                            print(kobo_linux_path, end="")
+                                            sys.stdout = original_stdout
+                                        break
+                                else:
+                                    continue
+                                break
+                            else:
+                                continue
+                            break
 
                     f = open(kobodir_cache_file, encoding="utf-8")
                     self.kobodir = f.read()
@@ -795,15 +810,18 @@ def decrypt_book(book, lib):
     zin = zipfile.ZipFile(book.filename, "r")
     # make filename out of Unicode alphanumeric and whitespace equivalents from title
     outname = "{}.epub".format(re.sub("[^\\s\\w]", "_", book.title, 0, re.UNICODE))
+    # Use the same directory as the source book file for output
+    output_dir = os.path.dirname(os.path.abspath(book.filename)) if os.path.dirname(book.filename) else os.getcwd()
+    outpath = os.path.join(output_dir, outname)
     if book.type == "drm-free":
         print("DRM-free book, conversion is not needed")
-        shutil.copyfile(book.filename, outname)
-        print(f"Book saved as {os.path.join(os.getcwd(), outname)}")
-        return os.path.join(os.getcwd(), outname)
+        shutil.copyfile(book.filename, outpath)
+        print(f"Book saved as {outpath}")
+        return outpath
     for userkey in lib.userkeys:
         print(f"Trying key: {userkey.hex()}")
         try:
-            zout = zipfile.ZipFile(outname, "w", zipfile.ZIP_DEFLATED)
+            zout = zipfile.ZipFile(outpath, "w", zipfile.ZIP_DEFLATED)
             for filename in zin.namelist():
                 contents = zin.read(filename)
                 if filename in book.encryptedfiles:
@@ -814,14 +832,15 @@ def decrypt_book(book, lib):
                 zout.writestr(filename, contents)
             zout.close()
             print("Decryption succeeded.")
-            print(f"Book saved as {os.path.join(os.getcwd(), outname)}")
+            print(f"Book saved as {outpath}")
             break
         except ValueError:
             print("Decryption failed.")
             zout.close()
-            os.remove(outname)
+            if os.path.exists(outpath):
+                os.remove(outpath)
     zin.close()
-    return os.path.join(os.getcwd(), outname)
+    return outpath
 
 
 def cli_main(devicedir):

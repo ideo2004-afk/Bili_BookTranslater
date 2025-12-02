@@ -405,7 +405,16 @@ So you are close to reaching the limit. You have to choose your own value, there
         default=1,
         help="Number of parallel workers for EPUB chapter processing. Use 2-4 for better performance. Default: 1",
     )
-
+    parser.add_argument(
+        "--no_glossary",
+        action="store_true",
+        help="Disable the use of glossary (nouns.json)",
+    )
+    parser.add_argument(
+        "--estimate",
+        action="store_true",
+        help="Estimate the total number of tokens to be translated without performing the translation",
+    )
     options = parser.parse_args()
 
     if not options.book_name:
@@ -449,24 +458,27 @@ So you are close to reaching the limit. You have to choose your own value, there
             # any string is ok, can't be empty
             API_KEY = "ollama"
         else:
-            raise Exception(
-                "OpenAI API key not provided, please google how to obtain it",
-            )
+            if options.estimate:
+                API_KEY = "ESTIMATE_MODE"
+            else:
+                raise Exception(
+                    "OpenAI API key not provided, please google how to obtain it",
+                )
     elif options.model == "caiyun":
         API_KEY = options.caiyun_key or env.get("BBM_CAIYUN_API_KEY")
-        if not API_KEY:
+        if not API_KEY and not options.estimate:
             raise Exception("Please provide caiyun key")
     elif options.model == "deepl":
         API_KEY = options.deepl_key or env.get("BBM_DEEPL_API_KEY")
-        if not API_KEY:
+        if not API_KEY and not options.estimate:
             raise Exception("Please provide deepl key")
     elif options.model.startswith("claude"):
         API_KEY = options.claude_key or env.get("BBM_CLAUDE_API_KEY")
-        if not API_KEY:
+        if not API_KEY and not options.estimate:
             raise Exception("Please provide claude key")
     elif options.model == "customapi":
         API_KEY = options.custom_api or env.get("BBM_CUSTOM_API")
-        if not API_KEY:
+        if not API_KEY and not options.estimate:
             raise Exception("Please provide custom translate api")
     elif options.model in ["gemini", "geminipro"]:
         API_KEY = options.gemini_key or env.get("BBM_GOOGLE_GEMINI_KEY")
@@ -514,6 +526,21 @@ So you are close to reaching the limit. You have to choose your own value, there
     if options.ollama_model and not model_api_base:
         # ollama default api_base
         model_api_base = "http://localhost:11434/v1"
+    
+    # Glossary logic: Enabled by default, disabled if --no_glossary is present
+    glossary_path = None
+    if not options.no_glossary:
+        # Extract book name without extension
+        book_basename = os.path.basename(options.book_name)
+        book_name_without_ext = os.path.splitext(book_basename)[0]
+        # Generate glossary path in books directory
+        book_dir = os.path.dirname(options.book_name)
+        if not book_dir:
+            book_dir = "."
+        glossary_path = os.path.join(book_dir, f"{book_name_without_ext}_nouns.json")
+        print(f"📚 Using glossary (default): {glossary_path}")
+    else:
+        print("🚫 Glossary disabled by user.")
 
     e = book_loader(
         options.book_name,
@@ -531,6 +558,7 @@ So you are close to reaching the limit. You have to choose your own value, there
         temperature=options.temperature,
         source_lang=options.source_lang,
         parallel_workers=options.parallel_workers,
+        glossary_path=glossary_path,
     )
     # other options
     if options.allow_navigable_strings:
@@ -551,72 +579,76 @@ So you are close to reaching the limit. You have to choose your own value, there
         e.batch_size = options.batch_size
     if options.retranslate:
         e.retranslate = options.retranslate
-    if options.deployment_id:
-        # only work for ChatGPT api for now
-        # later maybe support others
-        assert options.model in [
-            "chatgptapi",
-            "gpt4",
-            "gpt4omini",
-            "gpt4o",
-            "o1",
-            "o1preview",
-            "o1mini",
-            "o3mini",
-        ], "only support chatgptapi for deployment_id"
-        if not options.api_base:
-            raise ValueError("`api_base` must be provided when using `deployment_id`")
-        e.translate_model.set_deployment_id(options.deployment_id)
-    if options.model in ("openai", "groq"):
-        # Currently only supports `openai` when you also have --model_list set
-        if options.model_list:
-            e.translate_model.set_model_list(options.model_list.split(","))
-        else:
-            raise ValueError(
-                "When using `openai` model, you must also provide `--model_list`. For default model sets use `--model chatgptapi` or `--model gpt4` or `--model gpt4omini`",
-            )
-    # TODO refactor, quick fix for gpt4 model
-    if options.model == "chatgptapi":
-        if options.ollama_model:
-            e.translate_model.set_gpt35_models(ollama_model=options.ollama_model)
-        else:
-            e.translate_model.set_gpt35_models()
-    if options.model == "gpt4":
-        e.translate_model.set_gpt4_models()
-    if options.model == "gpt4omini":
-        e.translate_model.set_gpt4omini_models()
-    if options.model == "gpt4o":
-        e.translate_model.set_gpt4o_models()
-    if options.model == "o1preview":
-        e.translate_model.set_o1preview_models()
-    if options.model == "o1":
-        e.translate_model.set_o1_models()
-    if options.model == "o1mini":
-        e.translate_model.set_o1mini_models()
-    if options.model == "o3mini":
-        e.translate_model.set_o3mini_models()
-    if options.model.startswith("claude-"):
-        e.translate_model.set_claude_model(options.model)
-    if options.model.startswith("qwen-"):
-        e.translate_model.set_qwen_model(options.model)
-    if options.block_size > 0:
-        e.block_size = options.block_size
-    if options.batch_flag:
-        e.batch_flag = options.batch_flag
-    if options.batch_use_flag:
-        e.batch_use_flag = options.batch_use_flag
+    if not options.estimate:
+        if options.deployment_id:
+            # only work for ChatGPT api for now
+            # later maybe support others
+            assert options.model in [
+                "chatgptapi",
+                "gpt4",
+                "gpt4omini",
+                "gpt4o",
+                "o1",
+                "o1preview",
+                "o1mini",
+                "o3mini",
+            ], "only support chatgptapi for deployment_id"
+            if not options.api_base:
+                raise ValueError("`api_base` must be provided when using `deployment_id`")
+            e.translate_model.set_deployment_id(options.deployment_id)
+        if options.model in ("openai", "groq"):
+            # Currently only supports `openai` when you also have --model_list set
+            if options.model_list:
+                e.translate_model.set_model_list(options.model_list.split(","))
+            else:
+                raise ValueError(
+                    "When using `openai` model, you must also provide `--model_list`. For default model sets use `--model chatgptapi` or `--model gpt4` or `--model gpt4omini`",
+                )
+        # TODO refactor, quick fix for gpt4 model
+        if options.model == "chatgptapi":
+            if options.ollama_model:
+                e.translate_model.set_gpt35_models(ollama_model=options.ollama_model)
+            else:
+                e.translate_model.set_gpt35_models()
+        if options.model == "gpt4":
+            e.translate_model.set_gpt4_models()
+        if options.model == "gpt4omini":
+            e.translate_model.set_gpt4omini_models()
+        if options.model == "gpt4o":
+            e.translate_model.set_gpt4o_models()
+        if options.model == "o1preview":
+            e.translate_model.set_o1preview_models()
+        if options.model == "o1":
+            e.translate_model.set_o1_models()
+        if options.model == "o1mini":
+            e.translate_model.set_o1mini_models()
+        if options.model == "o3mini":
+            e.translate_model.set_o3mini_models()
+        if options.model.startswith("claude-"):
+            e.translate_model.set_claude_model(options.model)
+        if options.model.startswith("qwen-"):
+            e.translate_model.set_qwen_model(options.model)
+        if options.block_size > 0:
+            e.block_size = options.block_size
+        if options.batch_flag:
+            e.batch_flag = options.batch_flag
+        if options.batch_use_flag:
+            e.batch_use_flag = options.batch_use_flag
 
-    if options.model in ("gemini", "geminipro"):
-        e.translate_model.set_interval(options.interval)
-    if options.model == "gemini":
-        if options.model_list:
-            e.translate_model.set_model_list(options.model_list.split(","))
-        else:
-            e.translate_model.set_geminiflash_models()
-    if options.model == "geminipro":
-        e.translate_model.set_geminipro_models()
+        if options.model in ("gemini", "geminipro"):
+            e.translate_model.set_interval(options.interval)
+        if options.model == "gemini":
+            if options.model_list:
+                e.translate_model.set_model_list(options.model_list.split(","))
+            else:
+                e.translate_model.set_geminiflash_models()
+        if options.model == "geminipro":
+            e.translate_model.set_geminipro_models()
 
-    e.make_bilingual_book()
+    if options.estimate:
+        e.estimate()
+    else:
+        e.make_bilingual_book()
 
 
 if __name__ == "__main__":

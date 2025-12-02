@@ -16,7 +16,7 @@ classifiers = [
 dependencies = [
     "anthropic",
     "backoff",
-    "bs4",
+    "beautifulsoup4",
     "ebooklib",
     "google-generativeai",
     "langdetect",

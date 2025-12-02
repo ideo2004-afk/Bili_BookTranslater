@@ -7,11 +7,36 @@ The bilingual_book_maker is an AI translation tool that uses ChatGPT to assist u
 
 ![image](https://user-images.githubusercontent.com/15976103/222317531-a05317c5-4eee-49de-95cd-04063d9539d9.png)
 
+## GUI Application (New!)
+
+This project now includes a user-friendly GUI application `gui.py` that makes translating books easier than ever.
+
+**Features:**
+- **Queue Management**: Add multiple files to a translation queue.
+- **Visual Progress**: See real-time progress, time elapsed, and status for each file.
+- **Resume Capability**: Easily resume interrupted translations.
+- **Ollama Integration**: Dropdown selection for local Ollama models.
+- **Dynamic Glossary**: Automatically builds and uses a glossary of proper nouns (names, places, etc.) to ensure translation consistency.
+- **Log View**: Built-in log viewer to monitor the translation process.
+
+**How to run:**
+```shell
+pip install PySide6
+python3 gui.py
+```
+
 ## Supported Models
 
 gpt-4, gpt-3.5-turbo, claude-2, palm, llama-2, azure-openai, command-nightly, gemini, qwen-mt-turbo, qwen-mt-plus
 For using Non-OpenAI models, use class `liteLLM()` - liteLLM supports all models above.
 Find more info here for using liteLLM: https://github.com/BerriAI/litellm/blob/main/setup.py
+
+## Noun Glossary (New!)
+
+The tool now automatically maintains a glossary of proper nouns (names, places, organizations) in a JSON file (e.g., `bookname_nouns.json`).
+- **Auto-Extraction**: The AI identifies new proper nouns during translation.
+- **Consistency**: Subsequent chapters use the glossary to ensure names are translated consistently.
+- **Manual Editing**: You can manually edit the JSON file to fix or improve translations.
 
 ## Preparation
 
@@ -214,6 +239,10 @@ bbook --book_name test_books/animal_farm.epub --openai_key ${openai_key} --test
 - `--context_paragraph_limit`:
 
   Use `--context_paragraph_limit` to set a limit on the number of context paragraphs when using the `--use_context` option.
+
+- `--no_glossary`:
+
+  Use `--no_glossary` to disable the automatic glossary function. By default, the tool creates and uses a `nouns.json` file to maintain translation consistency for proper nouns. Using this flag turns off this feature.
 
 - `--parallel-workers`:
 

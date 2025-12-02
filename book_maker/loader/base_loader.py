@@ -15,6 +15,10 @@ class BaseBookLoader(ABC):
         pass
 
     @abstractmethod
+    def estimate(self):
+        pass
+
+    @abstractmethod
     def load_state(self):
         pass
 

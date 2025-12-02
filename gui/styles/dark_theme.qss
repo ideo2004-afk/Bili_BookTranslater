@@ -1,0 +1,192 @@
+/* Global Styles */
+QWidget {
+    background-color: #111111; /* zinc-950 */
+    color: #f4f4f5; /* zinc-100 */
+    font-size: 13px;
+}
+
+/* ToolBar & Sidebar */
+QToolBar {
+    background-color: #18181b;
+    border-bottom: 1px solid #27272a; /* zinc-800 */
+    spacing: 10px;
+    padding: 5px;
+}
+
+QToolButton {
+    background-color: transparent;
+    border: none;
+    border-radius: 6px;
+    padding: 6px;
+    color: #a1a1aa; /* zinc-400 */
+}
+
+QToolButton:hover {
+    background-color: #27272a; /* zinc-800 */
+    color: #f4f4f5; /* zinc-100 */
+}
+
+QToolButton:pressed {
+    background-color: #3f3f46; /* zinc-700 */
+}
+
+/* Table Widget */
+QTableWidget {
+    background-color: #18181b;
+    border: none;
+    gridline-color: transparent;
+    selection-background-color: #27272a; /* zinc-800 */
+    selection-color: #f4f4f5;
+    outline: none;
+}
+
+QTableWidget::item {
+    padding: 8px;
+    border-bottom: 1px solid #27272a;
+}
+
+QHeaderView::section {
+    background-color: #18181b;
+    color: #a1a1aa; /* zinc-400 */
+    border: none;
+    border-bottom: 1px solid #27272a;
+    padding: 8px;
+    font-weight: bold;
+    text-transform: uppercase;
+    font-size: 11px;
+}
+
+/* ScrollBar */
+QScrollBar:vertical {
+    border: none;
+    background: #18181b;
+    width: 10px;
+    margin: 0px;
+}
+
+QScrollBar::handle:vertical {
+    background: #3f3f46; /* zinc-700 */
+    min-height: 20px;
+    border-radius: 5px;
+    margin: 2px;
+}
+
+QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {
+    height: 0px;
+}
+
+/* List Widget */
+QListWidget {
+    background-color: transparent;
+    border: none;
+    outline: none;
+}
+
+QListWidget::item:selected {
+    background-color: #222222;
+    border-top: 1px solid #27272a;
+    border-radius: 8px;
+}
+
+/* Log Area */
+QTextEdit {
+    background-color: #222222; /* zinc-950 */
+    border-top: 1px solid #27272a;
+    color: #a1a1aa;
+    font-family: "Monaco", "Menlo", "Consolas", "Courier New";
+    font-size: 12px;
+    padding: 10px;
+}
+
+/* Settings Panel (Dock/Frame) */
+QFrame#SettingsPanel {
+    background-color: #222222;
+    border-left: 1px solid #27272a;
+}
+
+QLabel {
+    color: #d4d4d8; /* zinc-300 */
+}
+
+QLineEdit, QComboBox, QSpinBox, QDoubleSpinBox {
+    background-color: #27272a; /* zinc-800 */
+    border: 1px solid #3f3f46; /* zinc-700 */
+    border-radius: 6px;
+    padding: 6px;
+    color: #f4f4f5;
+    selection-background-color: #2563eb; /* blue-600 */
+}
+
+QLineEdit:focus, QComboBox:focus {
+    border: 1px solid #3b82f6; /* blue-500 */
+}
+
+QComboBox {
+    background-color: #27272a; /* zinc-800 */
+    border: 1px solid #3f3f46; /* zinc-700 */
+    border-radius: 6px;
+    padding: 6px;
+    color: #f4f4f5;
+    selection-background-color: #2563eb;
+}
+
+QComboBox::drop-down {
+    subcontrol-origin: padding;
+    subcontrol-position: top right;
+    width: 20px;
+    border-left-width: 0px;
+    border-top-right-radius: 3px;
+    border-bottom-right-radius: 3px;
+}
+
+QComboBox::down-arrow {
+    image: url(icons/chevron-down.svg);
+    width: 12px;
+    height: 12px;
+}
+
+QComboBox QAbstractItemView {
+    background: #27272a; /* zinc-800 */
+    border: 1px solid #3f3f46; /* zinc-700 */
+    selection-background-color: #3b82f6; /* blue-500 */
+    selection-color: white;
+    outline: none;
+}
+
+QComboBox QAbstractItemView::item {
+    color: #f4f4f5;
+    min-height: 24px;
+    padding: 4px;
+}
+
+QComboBox QAbstractItemView::item:selected {
+    background-color: #3b82f6;
+    color: white;
+}
+
+QPushButton {
+    background-color: #2563eb; /* blue-600 */
+    color: white;
+    border: none;
+    border-radius: 6px;
+    padding: 8px 16px;
+    font-weight: 600;
+}
+
+QPushButton:hover {
+    background-color: #1d4ed8; /* blue-700 */
+}
+
+QPushButton:pressed {
+    background-color: #1e40af; /* blue-800 */
+}
+
+QPushButton#CancelButton {
+    background-color: transparent;
+    color: #a1a1aa;
+}
+
+QPushButton#CancelButton:hover {
+    color: #f4f4f5;
+    background-color: #27272a;
+}
