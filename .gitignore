@@ -148,3 +148,4 @@ prompts/
 
 # Packaging files
 *.dmg
+dmg_root/
