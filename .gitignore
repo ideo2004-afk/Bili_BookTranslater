@@ -145,3 +145,6 @@ log/
 books/
 prompts/
 .pdm-python
+
+# Packaging files
+*.dmg
