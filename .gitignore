@@ -152,3 +152,6 @@ dmg_root/
 
 # Tool specific configurations
 .agent/
+
+# Local User Config
+config.json
