@@ -1,6 +1,11 @@
 import tiktoken
 
 # Borrowed from : https://github.com/openai/whisper
+class GlobalState:
+    is_cancelled = False
+
+global_state = GlobalState()
+
 LANGUAGES = {
     "en": "english",
     "zh-hans": "simplified chinese",
@@ -142,9 +147,13 @@ def num_tokens_from_text(text, model="gpt-3.5-turbo-0301"):
 
     """Returns the number of tokens used by a list of messages."""
     try:
-        encoding = tiktoken.encoding_for_model(model)
-    except KeyError:
-        encoding = tiktoken.get_encoding("cl100k_base")
+        try:
+            encoding = tiktoken.encoding_for_model(model)
+        except KeyError:
+            encoding = tiktoken.get_encoding("cl100k_base")
+    except Exception:
+        # Fallback if tiktoken data is missing in frozen app
+        return len(text) // 4  # Rough estimate
     if model == "gpt-3.5-turbo-0301":  # note: future models may deviate from this
         num_tokens = 0
         for message in messages:

@@ -18,14 +18,28 @@ from PySide6.QtCore import Qt, QThread, Signal, QSize, QTimer, QSettings, QPoint
 from PySide6.QtGui import QAction, QIcon, QDesktopServices
 from PySide6.QtCore import QUrl
 
-from book_maker.utils import LANGUAGES
+
+
+from book_maker.utils import LANGUAGES, global_state
+from book_maker.cli import main as book_maker_main
+import io
 
 if getattr(sys, 'frozen', False):
     # PyInstaller 打包後的資源路徑
     APP_DIR = Path(sys._MEIPASS)
 else:
     APP_DIR = Path(__file__).resolve().parent
-CONFIG_PATH = APP_DIR / "config.json"
+
+# Define User Data Directory
+USER_DATA_DIR = Path.home() / "Documents" / "Bili"
+USER_DATA_DIR.mkdir(parents=True, exist_ok=True)
+(USER_DATA_DIR / "books").mkdir(parents=True, exist_ok=True)
+(USER_DATA_DIR / "log").mkdir(parents=True, exist_ok=True)
+
+# Config path is now in user data dir
+CONFIG_PATH = USER_DATA_DIR / "config.json"
+# We might want to copy a default config if it doesn't exist
+DEFAULT_CONFIG_PATH = APP_DIR / "config.json"
 ICONS_DIR = APP_DIR / "icons"
 ACCEPT_SUFFIX = {".epub", ".txt", ".srt"}
 ROLE_ORIGIN_NAME = Qt.UserRole + 1
@@ -50,6 +64,13 @@ def guess_backend_dir(app_dir: Path) -> Path:
     return app_dir.resolve()
 
 def load_config(defaults: dict) -> dict:
+    # If user config doesn't exist but default one does, copy it
+    if not CONFIG_PATH.exists() and DEFAULT_CONFIG_PATH.exists():
+        try:
+            shutil.copy2(DEFAULT_CONFIG_PATH, CONFIG_PATH)
+        except Exception:
+            pass
+
     if CONFIG_PATH.exists():
         try:
             d = json.loads(CONFIG_PATH.read_text(encoding="utf-8"))
@@ -61,9 +82,35 @@ def load_config(defaults: dict) -> dict:
 def save_config(cfg: dict):
     CONFIG_PATH.write_text(json.dumps(cfg, ensure_ascii=False, indent=2), encoding="utf-8")
 
+def copy_resources():
+    """Copy necessary resources (prompts, config) to USER_DATA_DIR"""
+    # Copy all prompt_*.json files
+    for p in APP_DIR.glob("prompt*.json"):
+        target = USER_DATA_DIR / p.name
+        if not target.exists():
+            try:
+                shutil.copy2(p, target)
+            except Exception:
+                pass
+    
+    # Copy config.json if not exists
+    if not CONFIG_PATH.exists() and DEFAULT_CONFIG_PATH.exists():
+        try:
+            shutil.copy2(DEFAULT_CONFIG_PATH, CONFIG_PATH)
+        except Exception:
+            pass
+
 def list_ollama_models() -> List[str]:
+    ollama_bin = "ollama"
+    # Check common paths for macOS App Bundle environment
+    if shutil.which("ollama") is None:
+        for p in ["/usr/local/bin/ollama", "/opt/homebrew/bin/ollama"]:
+            if os.path.exists(p):
+                ollama_bin = p
+                break
+
     try:
-        res = subprocess.run(["ollama", "list"], capture_output=True, text=True, check=False)
+        res = subprocess.run([ollama_bin, "list"], capture_output=True, text=True, check=False)
         if res.returncode != 0 or not res.stdout:
             return []
         lines = [l.strip() for l in res.stdout.splitlines() if l.strip()]
@@ -78,107 +125,90 @@ def list_ollama_models() -> List[str]:
     except Exception:
         return []
 
-class Worker(QThread):
+class StreamRedirector(io.StringIO):
+    def __init__(self, signal, is_err=False):
+        super().__init__()
+        self.signal = signal
+        self.is_err = is_err
+
+    def write(self, text):
+        if text:
+            self.signal.emit(text)
+        return super().write(text)
+
+class DirectWorker(QThread):
     stdout_line = Signal(str)
     stderr_line = Signal(str)
     done = Signal(int, str)
 
-    def __init__(self, cmd: str, cwd: str, env: dict = None):
+    def __init__(self, args: List[str], cwd: str, env: dict = None):
         super().__init__()
-        self.cmd = cmd; self.cwd = cwd
+        self.args = args
+        self.cwd = cwd
         self.env = env if env is not None else os.environ.copy()
-        self._proc: Optional[subprocess.Popen] = None
-        self._pgid: Optional[int] = None
         self._user_cancelled = False
 
-    def _pump_stream(self, stream, is_err: bool, logfile_handle):
-        # Read character by character to handle \r correctly
-        # This is less efficient but necessary for tqdm progress bars
-        # Alternatively, we can read chunks and split by \r or \n
-        
-        # Better approach for GUI: read lines but treat \r as newline
-        # However, iter(stream.readline, '') relies on universal_newlines=True which handles \n
-        # But tqdm uses \r to update the same line.
-        
-        while True:
-            # Read a line. If universal_newlines=True, this might buffer until \n
-            # We need to ensure we get updates even if there's no \n (just \r)
-            # But subprocess with text=True usually buffers lines.
-            
-            # Let's try reading raw characters if we want real-time \r updates
-            # But that's complex. 
-            # Let's stick to readline but maybe check if we can force unbuffered?
-            # bufsize=1 means line buffered.
-            
-            line = stream.readline()
-            if not line:
-                break
-                
-            # Handle \r splitting manually if multiple updates came in one read
-            parts = line.split('\r')
-            for part in parts:
-                if not part: continue
-                clean_line = part.strip()
-                if not clean_line: continue
-                
-                if is_err:
-                    self.stderr_line.emit(clean_line)
-                else:
-                    self.stdout_line.emit(clean_line)
-
     def run(self):
-        try:
-            # ★ 新的 process group，之後可對整組送 SIGINT（等同 Ctrl+C）
-            self._proc = subprocess.Popen(
-                self.cmd, cwd=self.cwd, shell=True,
-                stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                text=True, bufsize=1, universal_newlines=True,
-                preexec_fn=os.setsid,  # macOS/Unix
-                env=self.env  # Pass environment variables
-            )
-            try:
-                self._pgid = os.getpgid(self._proc.pid)
-            except Exception:
-                self._pgid = None
+        # Reset cancellation flag
+        global_state.is_cancelled = False
+        
+        # Save original stdout/stderr and CWD
+        original_stdout = sys.stdout
+        original_stderr = sys.stderr
+        original_cwd = os.getcwd()
+        original_env = os.environ.copy()
 
-            threads = []
-            if self._proc.stdout:
-                t_out = threading.Thread(target=self._pump_stream, args=(self._proc.stdout, False, None), daemon=True)
-                threads.append(t_out); t_out.start()
-            if self._proc.stderr:
-                t_err = threading.Thread(target=self._pump_stream, args=(self._proc.stderr, True, None), daemon=True)
-                threads.append(t_err); t_err.start()
-            for t in threads: t.join()
-            self._proc.wait()
-            rc = self._proc.returncode or 0
+        try:
+            # Redirect stdout/stderr
+            sys.stdout = StreamRedirector(self.stdout_line)
+            sys.stderr = StreamRedirector(self.stderr_line, is_err=True)
             
-            # 判斷是否為使用者手動停止或系統中斷
-            # Unix: -2 (SIGINT), Python: 130 (128+2)
-            if self._user_cancelled or rc == -2 or rc == 130:
-                self.done.emit(rc, "已停止 🛑")
-            else:
-                self.done.emit(rc, "完成 ✅" if rc==0 else f"失敗（code={rc}）")
+            # Change CWD
+            os.chdir(self.cwd)
+            
+            # Update Environment
+            os.environ.update(self.env)
+
+            # Run the main function
+            # Note: book_maker_main might raise SystemExit on error or success
+            try:
+                book_maker_main(self.args)
+                self.done.emit(0, "完成 ✅")
+            except SystemExit as e:
+                code = e.code if isinstance(e.code, int) else 1
+                if code == 0:
+                    self.done.emit(0, "完成 ✅")
+                else:
+                    self.done.emit(code, f"失敗 (Exit Code: {code})")
+            except KeyboardInterrupt:
+                self.done.emit(1, "已停止 🛑")
+            except Exception as e:
+                self.done.emit(1, f"錯誤: {str(e)}")
+                import traceback
+                self.stderr_line.emit(traceback.format_exc())
+
         except Exception as e:
-            self.done.emit(1, f"錯誤：{e}")
+            self.done.emit(1, f"系統錯誤: {str(e)}")
+        finally:
+            # Restore original state
+            sys.stdout = original_stdout
+            sys.stderr = original_stderr
+            os.chdir(original_cwd)
+            os.environ.clear()
+            os.environ.update(original_env)
 
     def terminate_job(self):
-        """只送 SIGINT（Ctrl+C），交由 bilingual 自己處理暫存與收尾。"""
-        if not self._proc or self._proc.poll() is not None:
-            return
         self._user_cancelled = True
-        try:
-            if self._pgid is not None:
-                os.killpg(self._pgid, signal.SIGINT)  # Ctrl+C
-            else:
-                self._proc.send_signal(signal.SIGINT)
-        except Exception:
-            pass
+        global_state.is_cancelled = True
+        self.stderr_line.emit("正在等待當前翻譯批次完成...")
+
 
 class SettingsWidget(QWidget):
-    def __init__(self, cfg: dict, backend_dir: Path, parent=None):
+    def __init__(self, cfg: dict, backend_dir: Path, main_window, parent=None):
         super().__init__(parent)
-        self.cfg = cfg.copy()
+        self.cfg = cfg
         self.backend_dir = backend_dir
+        self.main_window = main_window
         
         # Main Layout
         main_layout = QVBoxLayout(self)
@@ -189,6 +219,11 @@ class SettingsWidget(QWidget):
         lbl_title = QLabel("設定")
         lbl_title.setStyleSheet("font-size: 24px; font-weight: bold; color: #f4f4f5;")
         main_layout.addWidget(lbl_title)
+
+        # Clarification Label
+        lbl_note = QLabel("請選擇翻譯模型、語言、提示詞，本系統支援Ollama本地模型與Gemini和OpenAI等多種模型。")
+        lbl_note.setStyleSheet("color: #a1a1aa; font-size: 13px; margin-bottom: 10px;")
+        main_layout.addWidget(lbl_note)
         
         # Scroll Area for settings form
         scroll = QScrollArea()
@@ -237,22 +272,14 @@ class SettingsWidget(QWidget):
             self.model_combo.insertSeparator(len(ollama_models))
             
         # 2. 加入雲端模型 (Gemini, OpenAI)
-        cloud_models = ["gemini-2.5-pro", "gemini-3-pro-preview", "gpt-4o", "gpt-4-turbo", "gpt-3.5-turbo"]
+        cloud_models = [
+            "gpt-5.1", "gpt-4o", "gpt-4.1", "gemini-2.5-pro", "gemini-2.5-flash", 
+            "gemini-2.0-flash",
+        ]
         self.model_combo.addItems(cloud_models)
         
-        # 設定預設值
-        current_model = self.cfg.get("ollama_model")
-        if not current_model or current_model == "qwen3:8b": 
-             if self.cfg.get("model") == "gemini":
-                 current_model = "gemini-3-pro-preview"
-             elif self.cfg.get("model") == "chatgptapi" and not self.cfg.get("ollama_model"):
-                 current_model = "gpt-4o"
-             elif ollama_models:
-                 current_model = ollama_models[0]
-             else:
-                 current_model = "gemini-3-pro-preview"
-
-        self.model_combo.setCurrentText(current_model)
+        
+        # 設定預設值 (These will be loaded by load_settings)
             
         self.lang = QComboBox(); self.lang.setEditable(False)
         self.lang.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
@@ -263,24 +290,18 @@ class SettingsWidget(QWidget):
         }
         self.lang.addItems(list(self.lang_map.keys()))
         
-        current_code = self.cfg.get("language", "zh-hant")
-        default_display = "繁體中文"
-        for name, code in self.lang_map.items():
-            if code == current_code:
-                default_display = name; break
-        self.lang.setCurrentText(default_display)
+        
+        # Default language handled in load_settings
 
         self.temp = QDoubleSpinBox(); self.temp.setRange(0.0, 2.0); self.temp.setDecimals(2); self.temp.setSingleStep(0.1)
-        self.temp.setValue(float(self.cfg.get("temperature", 0.5)))
+        # self.temp.setValue(float(self.cfg.get("temperature", 0.5)))
 
         self.prompt = QComboBox(); self.prompt.setEditable(False)
         _fix_combo_popup(self.prompt)
         prompt_files = sorted([f.name for f in APP_DIR.glob("prompt*.json")])
         if not prompt_files: prompt_files = ["prompt.json"]
         self.prompt.addItems(prompt_files)
-        current_prompt = self.cfg.get("prompt", "prompt.json")
-        if current_prompt in prompt_files: self.prompt.setCurrentText(current_prompt)
-        else: self.prompt.setEditText(current_prompt)
+        # Default prompt handled in load_settings
             
         self.google_key = QLineEdit(self.cfg.get("google_api_key", ""))
         self.google_key.setPlaceholderText("Gemini 模型需要 (GOOGLE_API_KEY)")
@@ -294,48 +315,32 @@ class SettingsWidget(QWidget):
         form_model.addRow("Google API Key:", self.google_key)
         form_model.addRow("OpenAI API Key:", self.openai_key)
         form_model.addRow("目標語言:", self.lang)
-        form_model.addRow("溫度 (Temperature):", self.temp)
-        form_model.addRow("提示詞 (Prompt):", self.prompt)
+        form_model.addRow("模型溫度:", self.temp)
+        form_model.addRow("提示詞:", self.prompt)
         
         self.layout.addWidget(grp_model)
 
-        # --- Group 2: 進階選項 ---
-        grp_adv = QGroupBox("進階選項")
-        v_adv = QVBoxLayout(grp_adv)
-        
-        self.chk_resume = QCheckBox("從中斷點續跑 (--resume)")
-        self.chk_resume.setChecked(bool(self.cfg.get("resume", False)))
-        self.chk_resume.setToolTip("若上次翻譯中斷，勾選此項可接續進度")
-
-        self.chk_context = QCheckBox("啟用上下文 (--use_context)")
-        self.chk_context.setChecked(bool(self.cfg.get("use_context", False)))
-        self.chk_context.setToolTip("將前文摘要傳送給 AI 以提升連貫性 (會增加 Token 消耗)")
-
-        self.chk_glossary = QCheckBox("啟用術語表 (Glossary)")
-        self.chk_glossary.setChecked(bool(self.cfg.get("use_glossary", True)))
-        self.chk_glossary.setToolTip("自動維護名詞對照表 (nouns.json) 以保持翻譯一致性")
-
-        hb_acc = QHBoxLayout()
-        self.chk_accumulated = QCheckBox("啟用累積字數")
-        self.chk_accumulated.setChecked(bool(self.cfg.get("use_accumulated", True)))
-        self.spin_accumulated = QSpinBox(); self.spin_accumulated.setRange(100, 10000); self.spin_accumulated.setValue(int(self.cfg.get("accumulated_num", 800)))
-        hb_acc.addWidget(self.chk_accumulated)
-        hb_acc.addWidget(QLabel("每批次字數:"))
-        hb_acc.addWidget(self.spin_accumulated)
-        hb_acc.addStretch()
-
-        v_adv.addWidget(self.chk_resume)
-        v_adv.addWidget(self.chk_context)
-        v_adv.addWidget(self.chk_glossary)
-        v_adv.addLayout(hb_acc)
-        self.layout.addWidget(grp_adv)
+        # Advanced settings (Context/Resume) have been simplified/removed from UI
+        # Load initial values handled at end of __init__
 
         # 輸出設定
         gb_out = QGroupBox("輸出設定")
         form_out = QFormLayout()
         self.out_dir_edit = QLineEdit(self.cfg["output_dir"])
-        btn_out = QPushButton("...")
-        btn_out.setFixedSize(30, 25)
+        btn_out = QPushButton("選擇路徑")
+        # btn_out.setFixedSize(30, 25)
+        btn_out.setCursor(Qt.PointingHandCursor)
+        btn_out.setStyleSheet("""
+            QPushButton {
+                background-color: #27272a;
+                border: 1px solid #3f3f46;
+                border-radius: 4px;
+                color: #e4e4e7;
+            }
+            QPushButton:hover {
+                background-color: #3f3f46;
+            }
+        """)
         btn_out.clicked.connect(self.pick_output_dir)
         h_out = QHBoxLayout()
         h_out.addWidget(self.out_dir_edit)
@@ -354,21 +359,99 @@ class SettingsWidget(QWidget):
         scroll.setWidget(content_widget)
         main_layout.addWidget(scroll)
 
+        # Buttons Layout
+        h_btns = QHBoxLayout()
+        h_btns.setSpacing(15)
+        h_btns.setAlignment(Qt.AlignCenter)
+
         # Save Button
         btn_save = QPushButton("儲存設定")
         btn_save.setFixedHeight(40)
-        btn_save.setMaximumWidth(200)
+        btn_save.setFixedWidth(120)
+        btn_save.setCursor(Qt.PointingHandCursor)
         btn_save.setStyleSheet("""
             QPushButton {
                 background-color: #3b82f6; 
                 color: white; 
-                border-radius: 6px; 
+                border-radius: 6px;
                 font-weight: bold;
+                font-size: 14px;
             }
-            QPushButton:hover { background-color: #2563eb; }
+            QPushButton:hover {
+                background-color: #2563eb;
+            }
         """)
         btn_save.clicked.connect(self.save_settings)
-        main_layout.addWidget(btn_save, alignment=Qt.AlignCenter)
+
+        # Cancel Button
+        btn_cancel = QPushButton("取消")
+        btn_cancel.setFixedHeight(40)
+        btn_cancel.setFixedWidth(120)
+        btn_cancel.setCursor(Qt.PointingHandCursor)
+        btn_cancel.setStyleSheet("""
+            QPushButton {
+                background-color: transparent; 
+                color: #a1a1aa; 
+                border: 1px solid #3f3f46;
+                border-radius: 6px;
+                font-size: 14px;
+            }
+            QPushButton:hover {
+                background-color: #27272a;
+                color: white;
+                border-color: #52525b;
+            }
+        """)
+        
+        h_btns.addWidget(btn_save)
+        h_btns.addWidget(btn_cancel)
+        
+        main_layout.addLayout(h_btns)
+        
+        self.btn_cancel = btn_cancel
+
+        # Load initial values (Must be called after all widgets are created)
+        self.load_settings()
+
+    def load_settings(self):
+        # Model
+        current_model = self.cfg.get("selected_model_display")
+        if not current_model: current_model = "gemini-2.5-pro"
+        self.model_combo.setCurrentText(current_model)
+        
+        # Language
+        current_code = self.cfg.get("language", "zh-hant")
+        default_display = "繁體中文"
+        for name, code in self.lang_map.items():
+            if code == current_code:
+                default_display = name; break
+        self.lang.setCurrentText(default_display)
+        
+        # Temp
+        self.temp.setValue(float(self.cfg.get("temperature", 0.5)))
+        
+        # Prompt
+        current_prompt = self.cfg.get("prompt", "prompt_tw.json")
+        idx = self.prompt.findText(current_prompt)
+        if idx >= 0: self.prompt.setCurrentIndex(idx)
+        else: self.prompt.setEditText(current_prompt)
+        
+        # Context - REMOVED
+        # Default to False if not set
+        # self.chk_context.setChecked(self.cfg.get("use_context", False))
+        
+        # Keys
+        self.google_key.setText(self.cfg.get("google_api_key", ""))
+        self.openai_key.setText(self.cfg.get("openai_api_key", ""))
+        
+        # Output Dir
+        self.out_dir_edit.setText(self.cfg.get("output_dir", str(Path.home()/"Desktop")))
+        
+        # Bilingual
+        self.chk_bilingual.setChecked(self.cfg.get("bilingual", True))
+
+    def revert_settings(self):
+        self.load_settings()
 
     def pick_output_dir(self):
         d = QFileDialog.getExistingDirectory(self, "選擇輸出目錄", self.out_dir_edit.text() or str(Path.home()/ "Desktop"))
@@ -385,6 +468,30 @@ class SettingsWidget(QWidget):
         else:
             model_type = "chatgptapi"; ollama_model = selected_model
 
+        
+        # Read context setting from UI - DISABLED
+        # use_context = self.chk_context.isChecked()
+        use_context = False 
+        use_glossary = True 
+        
+        # Batch size still auto-determined for now unless we add UI for it
+        if ollama_model:
+            accumulated_num = self.cfg.get("accumulated_num_ollama", 600)
+        else:
+            # Smart Batch Sizing (Cloud)
+            # Logic: Reasoning models (Gemini 2.5/3) need smaller chunks (1000) to allow space for "Thinking"
+            # Standard models (Gemini 1.5, GPT-4) can handle larger chunks (2500) for speed.
+            m_low = selected_model.lower()
+            if "gemini-2.5" in m_low or "gemini-3" in m_low or "o1-" in m_low:
+                # Reasoning Models (High thinking cost) -> Safe Mode
+                accumulated_num = 1000
+            elif "gpt" in m_low or "gemini-1.5" in m_low:
+                # Standard Models (No thinking cost) -> Speed Mode
+                accumulated_num = 2000
+            else:
+                # Default for unknown models
+                accumulated_num = 2000
+
         self.cfg.update({
             "model": model_type,
             "ollama_model": ollama_model,
@@ -394,31 +501,36 @@ class SettingsWidget(QWidget):
             "language": self.lang_map.get(selected_display, "zh-hant"),
             "temperature": float(self.temp.value()),
             "prompt": self.prompt.currentText().strip(),
-            "use_accumulated": self.chk_accumulated.isChecked(),
-            "accumulated_num": self.spin_accumulated.value(),
-            "resume": self.chk_resume.isChecked(),
-            "use_context": self.chk_context.isChecked(),
-            "use_glossary": self.chk_glossary.isChecked(),
+            "use_accumulated": True,
+            "accumulated_num": accumulated_num,
+            "interval": 2.0,
+            # "resume": self.chk_resume.isChecked(), # Removed from UI
+            "use_context": use_context,
+            "use_glossary": use_glossary,
             "bilingual": self.chk_bilingual.isChecked(),
             "output_dir": self.out_dir_edit.text().strip() or str(Path.home()/ "Desktop"),
         })
         save_config(self.cfg)
         
-        # Check if there's a pending file from first-time setup
-        main_window = self.parent().parent().parent()  # Navigate to MainWindow
-        if hasattr(main_window, 'pending_filepath') and main_window.pending_filepath:
-            filepath = main_window.pending_filepath
-            main_window.pending_filepath = None
+        # Check if there are pending files
+        if self.main_window.pending_filepaths:
+            filepaths = self.main_window.pending_filepaths[:] # Copy list
+            self.main_window.pending_filepaths = []
             
             # Switch back to tasks view
-            main_window.stack.setCurrentIndex(0)
-            main_window.sidebar.btn_tasks.setChecked(True)
-            main_window.sidebar.btn_settings.setChecked(False)
+            self.main_window.stack.setCurrentIndex(0)
+            self.main_window.sidebar.btn_settings.setChecked(False)
             
-            # Process the file
-            main_window.add_job_and_run_immediately(filepath)
+            # Process the files
+            for fp in filepaths:
+                self.main_window._add_job_internal(fp)
+                
+            self.main_window.status_label.setText("就緒")
         else:
             QMessageBox.information(self, "設定已儲存", "設定已成功更新！")
+            # Switch back to tasks view
+            self.main_window.stack.setCurrentIndex(0)
+            self.main_window.sidebar.btn_settings.setChecked(False)
 
 class Sidebar(QWidget):
     def __init__(self, parent=None):
@@ -427,8 +539,8 @@ class Sidebar(QWidget):
         self.setObjectName("Sidebar")
         self.setStyleSheet("""
             QWidget#Sidebar {
-                background-color: #090909; /* zinc-950 */
-                border-right: 1px solid #27272a; /* zinc-800 */
+                background-color: #333333; /* zinc-950 */
+                border-right: 3px solid #27272a; /* zinc-800 */
             }
             QToolButton {
                 border: none;
@@ -460,23 +572,18 @@ class Sidebar(QWidget):
             return btn
             
         # Navigation Group
-        self.btn_tasks = create_btn("list", "任務列表", True)
-        self.btn_tasks.setChecked(True)
         self.btn_settings = create_btn("settings", "設定", True)
         
-        layout.addWidget(self.btn_tasks)
         layout.addWidget(self.btn_settings)
         
         layout.addSpacing(20)
         
         # Action Buttons
-        self.btn_add = create_btn("plus", "新增檔案")
         self.btn_run = create_btn("play", "開始翻譯")
-        self.btn_stop = create_btn("x", "停止")
+        self.btn_stop = create_btn("x", "暫停翻譯")
         self.btn_del = create_btn("trash", "刪除檔案")
         self.btn_folder = create_btn("folder", "開啟輸出目錄")
         
-        layout.addWidget(self.btn_add)
         layout.addWidget(self.btn_run)
         layout.addWidget(self.btn_stop)
         layout.addWidget(self.btn_del)
@@ -608,13 +715,16 @@ class TaskCard(QWidget):
         path_row.addWidget(self.lbl_output)
         layout.addLayout(path_row)
 
+    def set_model(self, model_name):
+        self.lbl_model.setText(model_name)
+
     def update_status(self, status, progress=0, duration="00:00", remaining="00:00"):
         self.lbl_status.setText(status)
         if status == "執行中…":
             self.lbl_status.setStyleSheet("background-color: #1e3a8a; color: #93c5fd; padding: 4px 8px; border-radius: 4px; font-size: 11px;")
         elif status == "完成":
             self.lbl_status.setStyleSheet("background-color: #14532d; color: #86efac; padding: 4px 8px; border-radius: 4px; font-size: 11px;")
-        elif "失敗" in status or "停止" in status:
+        elif "失敗" in status or "停止" in status or "暫停" in status:
             self.lbl_status.setStyleSheet("background-color: #7f1d1d; color: #fca5a5; padding: 4px 8px; border-radius: 4px; font-size: 11px;")
         else:
             self.lbl_status.setStyleSheet("background-color: #27272a; color: #a1a1aa; padding: 4px 8px; border-radius: 4px; font-size: 11px;")
@@ -626,6 +736,52 @@ class TaskCard(QWidget):
              self.lbl_progress_text.setText(f"{progress}% (還需 {remaining})")
         else:
              self.lbl_progress_text.setText(f"{progress}%")
+
+    def mousePressEvent(self, event):
+        super().mousePressEvent(event)
+        # Find parent QListWidget
+        parent = self.parent()
+        while parent and not isinstance(parent, QListWidget):
+            parent = parent.parent()
+        
+        if parent:
+            # Map local position to QListWidget coordinates
+            # Note: itemAt takes position relative to viewport, but mapFromGlobal handles it if we use global
+            pos_in_list = parent.viewport().mapFromGlobal(self.mapToGlobal(event.position().toPoint()))
+            item = parent.itemAt(pos_in_list)
+            
+            if item:
+                if event.modifiers() & Qt.ControlModifier:
+                    item.setSelected(not item.isSelected())
+                elif event.modifiers() & Qt.ShiftModifier:
+                    # Simple shift support: select everything from current to this
+                    curr = parent.currentRow()
+                    target = parent.row(item)
+                    if curr != -1:
+                        start, end = min(curr, target), max(curr, target)
+                        for i in range(start, end + 1):
+                            parent.item(i).setSelected(True)
+                    else:
+                        item.setSelected(True)
+                else:
+                    # Single click: clear others unless Ctrl/Shift
+                    parent.clearSelection()
+                    item.setSelected(True)
+                
+                parent.setCurrentItem(item)
+
+    def mouseDoubleClickEvent(self, event):
+        super().mouseDoubleClickEvent(event)
+        # Find parent QListWidget
+        parent = self.parent()
+        while parent and not isinstance(parent, QListWidget):
+            parent = parent.parent()
+            
+        if parent:
+            pos_in_list = parent.viewport().mapFromGlobal(self.mapToGlobal(event.position().toPoint()))
+            item = parent.itemAt(pos_in_list)
+            if item:
+                parent.itemDoubleClicked.emit(item)
 
 from PySide6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QLabel,
@@ -639,44 +795,139 @@ from PySide6.QtWidgets import (
 from PySide6.QtCore import Qt, QThread, Signal, QSize, QTimer, QSettings, QPoint
 from PySide6.QtGui import QAction, QIcon, QDesktopServices
 
+class EmptyStateWidget(QWidget):
+    clicked = Signal()
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setObjectName("EmptyStateWidget")
+        
+        # Main layout to center the box
+        main_layout = QVBoxLayout(self)
+        main_layout.setAlignment(Qt.AlignCenter)
+        
+        # Inner fixed-size box
+        self.box = QFrame()
+        self.box.setFixedSize(500, 150)
+        self.box.setStyleSheet("""
+            QFrame {
+                background-color: #18181b; /* zinc-900 */
+                border: 4px dashed #3f3f46; /* zinc-700 */
+                border-radius: 12px;
+            }
+            QFrame:hover {
+                background-color: #27272a; /* zinc-800 */
+                border-color: #52525b; /* zinc-600 */
+            }
+            QLabel {
+                background: transparent;
+                border: none;
+            }
+        """)
+        
+        # Layout inside the box
+        box_layout = QVBoxLayout(self.box)
+        box_layout.setAlignment(Qt.AlignCenter)
+        box_layout.setSpacing(2)
+        box_layout.setContentsMargins(4, 4, 4, 4)
+        
+        # Icon (Smaller)
+        icon_label = QLabel()
+        icon_label.setAlignment(Qt.AlignCenter)
+        icon_path = ICONS_DIR / "upload.svg"
+        if icon_path.exists():
+            pixmap = QIcon(str(icon_path)).pixmap(24, 24) # Reduced size
+            if not pixmap.isNull():
+                 from PySide6.QtGui import QPainter, QColor
+                 painter = QPainter(pixmap)
+                 painter.setCompositionMode(QPainter.CompositionMode_SourceIn)
+                 painter.fillRect(pixmap.rect(), QColor("#71717a"))
+                 painter.end()
+                 icon_label.setPixmap(pixmap)
+        box_layout.addWidget(icon_label)
+        
+        # Main Text
+        lbl_main = QLabel("將檔案拖到這裡或點擊上傳")
+        lbl_main.setAlignment(Qt.AlignCenter)
+        lbl_main.setStyleSheet("color: #e4e4e7; font-size: 16px; font-weight: bold;")
+        box_layout.addWidget(lbl_main)
+        
+        # Sub Text
+        lbl_sub = QLabel("支援 EPUB/TXT/SRT/MD 格式檔案")
+        lbl_sub.setAlignment(Qt.AlignCenter)
+        lbl_sub.setStyleSheet("color: #71717a; font-size: 12px;")
+        box_layout.addWidget(lbl_sub)
+        
+        # Logo & Title Container
+        top_container = QWidget()
+        top_layout = QHBoxLayout(top_container) # Changed to Horizontal
+        top_layout.setAlignment(Qt.AlignCenter)
+        top_layout.setSpacing(15) # Increased spacing slightly
+        
+        # Logo
+        logo_label = QLabel()
+        logo_label.setAlignment(Qt.AlignCenter)
+        logo_path = ICONS_DIR / "logo.svg"
+        if logo_path.exists():
+            pixmap = QIcon(str(logo_path)).pixmap(64, 64) # Slightly smaller for horizontal
+            if not pixmap.isNull():
+                logo_label.setPixmap(pixmap)
+        top_layout.addWidget(logo_label)
+        
+        # Title
+        title_label = QLabel("Bili 原文書翻譯")
+        title_label.setAlignment(Qt.AlignCenter)
+        # Removed margin-bottom as it's now horizontal
+        title_label.setStyleSheet("font-size: 24px; font-weight: bold; color: #f4f4f5;") 
+        top_layout.addWidget(title_label)
+        
+        main_layout.addWidget(top_container)
+        main_layout.addWidget(self.box)
+
+    def mousePressEvent(self, event):
+        if event.button() == Qt.LeftButton:
+            self.clicked.emit()
+        super().mousePressEvent(event)
+
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         
+        # Ensure resources are copied to user dir
+        copy_resources()
+        
+        # Load Stylesheet
+        self.load_stylesheet()
+        
+        self.settings = QSettings("Bili", "App")
+        
         self.backend_dir = guess_backend_dir(APP_DIR)
-        self.backend_books = self.backend_dir / "books"
+        # Use user data dir for books to ensure writability
+        self.backend_books = USER_DATA_DIR / "books"
         self.backend_books.mkdir(parents=True, exist_ok=True)
 
-        defaults = {"model":"chatgptapi","ollama_model":"qwen3:8b","language":"zh-hant",
-                    "temperature":0.5,"prompt":"prompt.json", 
+        defaults = {"model":"gemini","ollama_model":"","language":"zh-hant",
+                    "temperature":0.7,"prompt":"prompt_繁中.json", 
                     "google_api_key": "", "openai_api_key": "",
                     "use_accumulated":False, "accumulated_num":800,
-                    "resume":False, "bilingual":True, "output_dir":str(Path.home()/ "Desktop")}
+                    "accumulated_num_ollama": 600, "accumulated_num_cloud": 1500,
+                    "resume":False, "bilingual":True, "output_dir":str(Path.home()/ "Desktop"),
+                    "selected_model_display": "gemini-2.5-pro"}
         self.cfg = load_config(defaults)
 
-        self.setWindowTitle("Bili 多語翻譯")
-        self.resize(1120, 750)
+        self.setWindowTitle("Bili 原文書翻譯")
+        self.resize(900, 700)
         self.setAcceptDrops(True)
         self.setUnifiedTitleAndToolBarOnMac(True)
         self.setWindowIcon(QIcon("icon.png"))
         
-        # Track if user has been prompted about settings
-        self.has_shown_settings_prompt = False
-        self.pending_filepath = None  # Store filepath when first-time setup is triggered
+        # Track if user has been prompted about settings (Persistent)
+        self.has_shown_settings_prompt = self.settings.value("has_shown_settings_prompt", False, type=bool)
+        self.pending_filepaths = []  # Store filepaths when settings review is triggered
         
         # Load QSS Style
-        # Load QSS Style
-        try:
-            qss_path = APP_DIR / "gui" / "styles" / "dark_theme.qss"
-            if qss_path.exists():
-                qss_content = qss_path.read_text(encoding="utf-8")
-                # Replace relative icon paths with absolute paths
-                # Use as_posix() to ensure forward slashes on Windows/macOS for CSS url()
-                icons_root = ICONS_DIR.as_posix()
-                qss_content = qss_content.replace("url(icons/", f"url({icons_root}/")
-                self.setStyleSheet(qss_content)
-        except Exception as e:
-            print(f"Failed to load style: {e}")
+        # self.load_stylesheet() is already called above at line 898
+
 
         # Main Layout (Horizontal: Sidebar | Content | Log Sidebar)
         main_widget = QWidget()
@@ -690,10 +941,8 @@ class MainWindow(QMainWindow):
         self.main_layout.addWidget(self.sidebar)
         
         # Connect Sidebar Buttons
-        self.sidebar.btn_tasks.clicked.connect(lambda: self.switch_view(0))
         self.sidebar.btn_settings.clicked.connect(lambda: self.switch_view(1))
         
-        self.sidebar.btn_add.clicked.connect(self.pick_files)
         self.sidebar.btn_run.clicked.connect(self.run_selected_with_choice)
         self.sidebar.btn_stop.clicked.connect(self.stop_current)
         self.sidebar.btn_del.clicked.connect(self.delete_item)
@@ -728,26 +977,19 @@ class MainWindow(QMainWindow):
         task_layout.setContentsMargins(0, 0, 0, 0)
         task_layout.setSpacing(0)
         
-        self.settings = QSettings("BilingualBookMaker", "App")
-        
         # Empty State Placeholder
-        self.empty_state = QLabel("請拖拉待翻譯的 EPUB/TXT/SRT 檔案")
-        self.empty_state.setAlignment(Qt.AlignCenter)
-        self.empty_state.setStyleSheet("""
-            QLabel {
-                color: #52525b;
-                font-size: 16px;
-                font-weight: 500;
-            }
-        """)
+        self.empty_state = EmptyStateWidget()
+        self.empty_state.clicked.connect(self.pick_files)
         
-        # Task List
+        # Task List Container
         self.task_list = QListWidget()
         self.task_list.setFrameShape(QListWidget.NoFrame)
         self.task_list.setStyleSheet("background-color: transparent; outline: none;")
         self.task_list.setVerticalScrollMode(QAbstractItemView.ScrollPerPixel)
         self.task_list.setSpacing(8)
         self.task_list.setContentsMargins(16, 16, 16, 16)
+        self.task_list.setSelectionMode(QAbstractItemView.ExtendedSelection)
+        self.task_list.itemDoubleClicked.connect(self.run_selected_with_choice)
         
         # Stack to switch between empty state and task list
         self.task_stack = QStackedWidget()
@@ -761,6 +1003,7 @@ class MainWindow(QMainWindow):
         self.log_panel = QWidget()
         self.log_panel.setMinimumWidth(200)
         self.log_panel.setStyleSheet("background-color: #222222; border-left: 1px solid #373737;")
+        self.log_panel.setAttribute(Qt.WA_StyledBackground, True) # Ensure background is painted
         self.log_panel.setVisible(False)
         
         log_layout = QVBoxLayout(self.log_panel)
@@ -770,84 +1013,120 @@ class MainWindow(QMainWindow):
         # Log Header
         log_header = QWidget()
         log_header.setFixedHeight(40)
-        log_header.setStyleSheet("border-bottom: 1px solid #373737;")
-        lh_layout = QHBoxLayout(log_header)
-        lh_layout.setContentsMargins(16, 0, 16, 0)
-        lh_layout.addWidget(QLabel("執行日誌"))
-        lh_layout.addStretch()
+        log_header_layout = QHBoxLayout(log_header)
+        log_header_layout.setContentsMargins(10, 0, 10, 0)
         
-        btn_clear = QPushButton("清除")
-        btn_clear.setFixedSize(60, 28)
-        btn_clear.setStyleSheet("""
+        lbl_log_title = QLabel("執行日誌")
+        lbl_log_title.setStyleSheet("font-weight: bold; color: #d4d4d8;")
+        log_header_layout.addWidget(lbl_log_title)
+        log_header_layout.addStretch()
+        
+        btn_clear_log = QPushButton("清除")
+        btn_clear_log.setCursor(Qt.PointingHandCursor)
+        btn_clear_log.setStyleSheet("""
             QPushButton {
-                background: transparent; 
-                color: #a1a1aa; 
+                background-color: transparent;
+                color: #a1a1aa;
                 border: none;
+                font-size: 12px;
             }
-            QPushButton:hover {
-                color: #f4f4f5;
-            }
+            QPushButton:hover { color: #f4f4f5; }
         """)
-        btn_clear.setCursor(Qt.PointingHandCursor)
-        btn_clear.clicked.connect(lambda: self.log_text.clear())
-        lh_layout.addWidget(btn_clear)
+        btn_clear_log.clicked.connect(self.clear_log)
+        log_header_layout.addWidget(btn_clear_log)
         
         btn_close_log = QPushButton()
-        btn_close_log.setIcon(self.sidebar._load_icon("x")) # Reuse sidebar icon loader if possible or just load directly
-        btn_close_log.setFixedSize(24, 24)
-        btn_close_log.setStyleSheet("background: transparent; border: none;")
+        btn_close_log.setIcon(QIcon(str(ICONS_DIR / "x.svg")))
+        btn_close_log.setIconSize(QSize(16, 16))
         btn_close_log.setCursor(Qt.PointingHandCursor)
+        btn_close_log.setFixedSize(24, 24)
+        btn_close_log.setStyleSheet("""
+            QPushButton {
+                background-color: transparent;
+                border: none;
+                border-radius: 4px;
+            }
+            QPushButton:hover { background-color: #3f3f46; }
+        """)
         btn_close_log.clicked.connect(self.toggle_log_panel)
-        lh_layout.addWidget(btn_close_log)
-
+        log_header_layout.addWidget(btn_close_log)
+        
         log_layout.addWidget(log_header)
         
         # Log Text Area
         self.log_text = QTextEdit()
         self.log_text.setReadOnly(True)
-        self.log_text.setStyleSheet("border: none; padding: 8px;")
+        self.log_text.setFrameShape(QFrame.NoFrame)
+        self.log_text.setStyleSheet("background-color: #222222; color: #a1a1aa; border: none;")
         log_layout.addWidget(self.log_text)
         
         self.task_splitter.addWidget(self.log_panel)
         
-        # Set initial splitter sizes (70% task list, 30% log)
-        self.task_splitter.setSizes([700, 300])
+        # Set initial sizes for splitter (Content : Log)
+        self.task_splitter.setSizes([700, 0]) # Log hidden initially
+        self.task_splitter.setCollapsible(0, False)
+        self.task_splitter.setCollapsible(1, True)
         
-        # Add splitter to main layout
         task_view_main_layout.addWidget(self.task_splitter)
         
-        self.stack.addWidget(self.task_view)
-        
         # --- View 1: Settings View ---
-        self.settings_widget = SettingsWidget(self.cfg, self.backend_dir)
-        self.stack.addWidget(self.settings_widget)
+        self.settings_widget = SettingsWidget(self.cfg, self.backend_dir, main_window=self)
+        
+        # Add views to stack
+        self.stack.addWidget(self.task_view)      # Index 0
+        self.stack.addWidget(self.settings_widget) # Index 1
+        
+        # Connect settings cancel button to switch back to task view
+        self.settings_widget.btn_cancel.clicked.connect(self.on_settings_cancel)
         
         # Status Bar
         self.status_bar = QStatusBar()
-        self.status_bar.setStyleSheet("""
-            QStatusBar {
-                background-color: #111111;
-                color: #a1a1aa;
-                border-top: 1px solid #27272a;
-            }
-            QStatusBar::item {
-                border: none;
-            }
-        """)
         self.setStatusBar(self.status_bar)
+        self.status_bar.setStyleSheet("QStatusBar { background-color: #111111; color: #a1a1aa; border-top: 1px solid #27272a; }")
+        self.status_bar.setSizeGripEnabled(False) # Remove size grip on Mac to look cleaner
         
-        # Create a centered label for status messages
         self.status_label = QLabel("就緒")
         self.status_label.setAlignment(Qt.AlignCenter)
-        self.status_label.setStyleSheet("color: #a1a1aa; background: transparent;")
-        self.status_bar.addWidget(self.status_label, 1)  # stretch factor 1 to center
+        self.status_label.setStyleSheet("color: #a1a1aa; padding-left: 10px;")
+        self.status_bar.addWidget(self.status_label, 1) # Stretch factor 1 to center
+        
+        version_label = QLabel("by @Lee 2025 v1.1")
+        version_label.setStyleSheet("color: #52525b; padding-right: 10px;")
+        self.status_bar.addPermanentWidget(version_label)
 
         self.queue = []; self.current_worker = None; self.current_row = None
         self.row_start_time = {}
-        self.elapsed_timer = QTimer(self); self.elapsed_timer.timeout.connect(self._tick_elapsed)
-        self.elapsed_timer.start(3000)
 
         self.append_log(f"[APP] APP_DIR={APP_DIR}")
+        
+        # Auto-load existing files
+        QTimer.singleShot(100, self.load_existing_files)
+        
+    def load_existing_files(self):
+        if not self.backend_books.exists(): return
+        
+        # Gather all valid files
+        files = []
+        for p in self.backend_books.iterdir():
+            if not p.is_file(): continue
+            if p.name.startswith("."): continue # skip hidden files
+            if "_bili" in p.name or "_bilingual" in p.name: continue
+            if p.suffix.lower() == '.json': continue
+            if p.suffix.lower() not in ['.epub', '.txt', '.srt', '.md']: continue
+            
+            # Check modification time to sort
+            files.append((p.stat().st_mtime, p))
+            
+        # Sort by modification time (newest first)
+        files.sort(key=lambda x: x[0], reverse=True)
+        
+        count = 0
+        for _, p in files:
+            self._add_job_internal(str(p), skip_copy=True, auto_run=False)
+            count += 1
+            
+        if count > 0:
+            self.append_log(f"[AutoLoad] Loaded {count} existing files from {self.backend_books}")
         
     def switch_view(self, index):
         self.stack.setCurrentIndex(index)
@@ -856,11 +1135,24 @@ class MainWindow(QMainWindow):
     def toggle_log_panel(self):
         visible = self.log_panel.isVisible()
         self.log_panel.setVisible(not visible)
+        if not visible:
+            # If opening, ensure it has width
+            current_sizes = self.task_splitter.sizes()
+            if len(current_sizes) >= 2 and current_sizes[1] == 0:
+                total = sum(current_sizes)
+                # Give log panel ~30% width
+                new_log_width = int(total * 0.3)
+                new_task_width = total - new_log_width
+                self.task_splitter.setSizes([new_task_width, new_log_width])
+        
+    def on_settings_cancel(self):
+        self.settings_widget.revert_settings()
+        self.switch_view(0)
+        self.sidebar.btn_settings.setChecked(False)
         
     def pick_files(self):
         # Ensure we are on task view
         self.switch_view(0)
-        self.sidebar.btn_tasks.setChecked(True)
         
         files, _ = QFileDialog.getOpenFileNames(self, "選擇檔案", str(Path.home()), "Supported (*.epub *.txt *.srt);;All Files (*)")
         for f in files:
@@ -869,11 +1161,11 @@ class MainWindow(QMainWindow):
 
     def _is_supported_source(self, p: Path) -> bool:
         suffix_ok = p.suffix.lower() in {".epub",".txt",".srt"}
-        reject = ("_bilingual" in p.stem.lower()) or (".temp" in p.name.lower()) or p.name.lower().endswith(".log")
+        reject = ("_bili" in p.stem.lower()) or ("_bilingual" in p.stem.lower()) or (".temp" in p.name.lower()) or p.name.lower().endswith(".log")
         if not suffix_ok:
             QMessageBox.critical(self, "不支援的檔案", f"只支援：.epub, .txt, .srt\n{p}"); return False
         if reject:
-            QMessageBox.critical(self, "無效的輸入", "這看起來是輸出檔或暫存檔（*_bilingual.*, *.temp*, *.log*），請不要丟入。"); return False
+            QMessageBox.critical(self, "無效的輸入", "這看起來是輸出檔或暫存檔（*_bili.*, *_bilingual.*, *.temp*, *.log*），請不要丟入。"); return False
         return True
 
     def dragEnterEvent(self, e):
@@ -895,28 +1187,40 @@ class MainWindow(QMainWindow):
             QMessageBox.critical(self, "開啟失敗", str(e))
 
     def add_job_and_run_immediately(self, filepath: str):
-        # First-time: automatically switch to settings view
-        if not self.has_shown_settings_prompt:
-            self.has_shown_settings_prompt = True
-            # Store the filepath to process after settings are saved
-            self.pending_filepath = filepath
+        # If task list is empty, force user to review settings first
+        if self.task_list.count() == 0:
+            self.pending_filepaths.append(filepath)
+            
             # Switch to settings view
             self.stack.setCurrentIndex(1)
             self.sidebar.btn_settings.setChecked(True)
-            self.sidebar.btn_tasks.setChecked(False)
+            
             # Show a message in status bar
             self.status_label.setText("請先確認設定參數，完成後按「儲存設定」開始翻譯")
             return
         
-        # Settings are now configured in the Settings View before running
-        # We assume current config is valid or use defaults
-        
+        # If tasks exist, just add directly
+        self._add_job_internal(filepath)
+
+    def _add_job_internal(self, filepath: str, skip_copy: bool = False, auto_run: bool = True):
         src = Path(filepath); dst = self.backend_books / src.name
-        try:
-            shutil.copy2(src, dst)
-            copy_status = "Created" if not dst.exists() else "Overwritten"
-        except Exception as e:
-            QMessageBox.critical(self, "複製檔案失敗", f"{e}"); return
+        
+        copy_status = "Skipped"
+        if not skip_copy:
+            try:
+                # If src and dst are the same, don't copy
+                if src.resolve() != dst.resolve():
+                    shutil.copy2(src, dst)
+                    copy_status = "Created" if not dst.exists() else "Overwritten"
+                else:
+                    copy_status = "Same File"
+            except Exception as e:
+                QMessageBox.critical(self, "複製檔案失敗", f"{e}"); return
+        else:
+             # Even if skip_copy is True, ensure file exists
+             if not dst.exists():
+                 self.append_log(f"[Error] File not found for autoload: {dst}")
+                 return
 
         # Create Task Card
         model_display = self.cfg.get("selected_model_display", self.cfg.get("ollama_model", "chatgptapi"))
@@ -939,40 +1243,65 @@ class MainWindow(QMainWindow):
         row = self.task_list.row(item) # Get row index
 
         self.append_log(f"[SOURCE] {src}  →  {dst} | COPY={copy_status}")
-        self.queue = [row]; self.run_next(resume=False)
+        
+        if auto_run:
+            self.queue.append(row)
+            self.run_next(resume=False)
 
 
 
-    def build_cmd(self, cfg: dict, row: int, resume: bool) -> str:
-        make_book = self.backend_dir / "make_book.py"
-        if not make_book.exists():
-            QMessageBox.critical(self, "找不到 make_book.py", f"{make_book}"); return ""
+    def build_args(self, cfg: dict, row: int, resume: bool) -> List[str]:
+        # No longer checking for make_book.py existence since we import it
+        
         prompt_path = cfg.get("prompt") or "prompt.json"
 
         item = self.task_list.item(row)
         origin_name = item.data(ROLE_ORIGIN_NAME)
         
-        if "_bilingual" in origin_name.lower():
+        if "_bili" in origin_name.lower():
+            origin_name = origin_name.lower().replace("_bili","")
+        elif "_bilingual" in origin_name.lower():
             origin_name = origin_name.lower().replace("_bilingual","")
 
+        # Use relative path for book name, assuming CWD is set correctly
         book_rel_path = f"books/{origin_name}"
         model_type = cfg.get("model", "chatgptapi")
         
-        args = [sys.executable, str(self.backend_dir / "make_book.py"),
+        # Construct args list (not command string)
+        args = [
                 "--model", model_type,
                 "--language", cfg["language"],
                 "--temperature", str(cfg["temperature"]),
                 "--prompt", prompt_path,
                 "--book_name", book_rel_path]
         
-        if model_type == "chatgptapi" and cfg.get("ollama_model"):
-            args.extend(["--ollama_model", cfg["ollama_model"]])
+        if model_type == "chatgptapi":
+            if cfg.get("ollama_model"):
+                args.extend(["--ollama_model", cfg["ollama_model"]])
+            else:
+                # For cloud OpenAI models (gpt-5, gpt-4o, etc.), we should use 'openai' model type
+                # and pass the specific model name via --model_list
+                selected_model = cfg.get("selected_model_display")
+                if selected_model and not selected_model.startswith("gpt-4o"):
+                     # Update the model argument in the list to 'openai'
+                     try:
+                        idx = args.index("--model")
+                        args[idx + 1] = "openai"
+                        args.extend(["--model_list", selected_model])
+                     except ValueError:
+                        pass
+        
+        if model_type == "gemini":
+            # Pass the specific Gemini model (e.g. gemini-2.5-pro) as model_list
+            selected_model = cfg.get("selected_model_display")
+            if selected_model:
+                args.extend(["--model_list", selected_model])
         
         if cfg.get("use_accumulated", False):
             args.extend(["--accumulated_num", str(cfg.get("accumulated_num", 800))])
 
-        if cfg.get("use_context", False):
-            args.append("--use_context")
+        # if cfg.get("use_context", False):
+        #     args.append("--use_context")
 
         if not cfg.get("use_glossary", True):
             args.append("--no_glossary")
@@ -982,8 +1311,10 @@ class MainWindow(QMainWindow):
 
         if resume: args.append("--resume")
 
-        q = lambda s: f'"{s}"' if " " in s else s
-        return " ".join(q(a) for a in args)
+        if cfg.get("interval"):
+            args.extend(["--interval", str(cfg.get("interval"))])
+
+        return args
 
     def run_selected_with_choice(self):
         # For simplicity in list widget, just run selected or all
@@ -1011,9 +1342,7 @@ class MainWindow(QMainWindow):
 
         self.queue = rows; self.run_next(resume=resume)
 
-    def _selected_rows_or_all_pending(self):
-        # This method is no longer used directly, replaced by logic in run_selected_with_choice
-        pass
+
 
     def run_next(self, resume: bool):
         if self.current_worker or not self.queue: return
@@ -1022,18 +1351,34 @@ class MainWindow(QMainWindow):
         item = self.task_list.item(r)
         card = self.task_list.itemWidget(item)
         
+        # Determine the display string effectively
+        if self.cfg.get("model") == "gemini":
+            model_display = self.cfg.get("selected_model_display", "gemini")
+        elif self.cfg.get("model") == "chatgptapi":
+             if self.cfg.get("ollama_model"):
+                 model_display = self.cfg.get("ollama_model")
+             else:
+                 model_display = self.cfg.get("selected_model_display", "gpt-4o")
+        else:
+             model_display = self.cfg.get("model", "Unknown")
+
+        if hasattr(card, 'set_model'):
+            card.set_model(model_display)
+        
         card.update_status("執行中…", 0, "00:00", "00:00")
         self.row_start_time[r] = time.time()
 
-        cmd = self.build_cmd(self.cfg, r, resume=resume)
-        if not cmd:
-            card.update_status("失敗")
-            self.run_next(resume=resume); return
+        args = self.build_args(self.cfg, r, resume=resume)
+        # if not args: # build_args always returns list
+        #     card.update_status("失敗")
+        #     self.run_next(resume=resume); return
             
-        self.append_log(f"$ {cmd}")
+        self.append_log(f"$ Direct Call: {args}")
         self.status_label.setText(f"正在翻譯: {item.data(ROLE_ORIGIN_NAME)} ...")
 
         env = os.environ.copy()
+        env["PYTHONUNBUFFERED"] = "1"
+        env["COLUMNS"] = "1000"  # Prevent rich from wrapping text too early
         model_type = self.cfg.get("model", "chatgptapi")
         if model_type == "gemini":
             g_key = self.cfg.get("google_api_key", "").strip()
@@ -1042,8 +1387,11 @@ class MainWindow(QMainWindow):
             if not self.cfg.get("ollama_model"):
                 o_key = self.cfg.get("openai_api_key", "").strip()
                 if o_key: env["OPENAI_API_KEY"] = o_key
-
-        self.current_worker = Worker(cmd, str(APP_DIR), env=env)
+        # No need to set PYTHONPATH for direct call as we are in the same process
+        # But we still need to set environment variables for API keys
+        
+        # Run in USER_DATA_DIR so logs and temp files are written there
+        self.current_worker = DirectWorker(args, str(USER_DATA_DIR), env=env)
         self.current_worker.stdout_line.connect(lambda line, row=r: self.on_stdout(row, line))
         self.current_worker.stderr_line.connect(lambda line, row=r: self.on_stderr(row, line))
         self.current_worker.done.connect(lambda rc, msg, row=r: self.on_done(row, rc, msg, resume))
@@ -1109,8 +1457,15 @@ class MainWindow(QMainWindow):
         except Exception as e:
             self.append_log(f"刪除來源檔失敗 {src_path.name}: {e}")
             
-        # 2. Delete output files (e.g. *_bilingual.epub)
+        # 2. Delete output files (e.g. *_bili.epub, *_bilingual.epub)
         stem = Path(origin_name).stem
+        for p in self.backend_books.glob(f"{stem}_bili.*"):
+            try: 
+                p.unlink()
+                self.append_log(f"已刪除輸出檔: {p.name}")
+            except Exception as e: 
+                self.append_log(f"刪除輸出檔失敗 {p.name}: {e}")
+        
         for p in self.backend_books.glob(f"{stem}_bilingual.*"):
             try: 
                 p.unlink()
@@ -1118,7 +1473,14 @@ class MainWindow(QMainWindow):
             except Exception as e: 
                 self.append_log(f"刪除輸出檔失敗 {p.name}: {e}")
 
-        # 3. Delete temporary files (e.g. *_bilingual_temp.epub, *_temp.*)
+        # 3. Delete temporary files (e.g. *_bili_temp.epub, *_bilingual_temp.epub, *_temp.*)
+        for p in self.backend_books.glob(f"{stem}_bili_temp.*"):
+            try: 
+                p.unlink()
+                self.append_log(f"已刪除暫存檔: {p.name}")
+            except Exception as e: 
+                self.append_log(f"刪除暫存檔失敗 {p.name}: {e}")
+
         for p in self.backend_books.glob(f"{stem}_bilingual_temp.*"):
             try: 
                 p.unlink()
@@ -1158,9 +1520,7 @@ class MainWindow(QMainWindow):
         if self.task_list.count() == 0:
             self.task_stack.setCurrentIndex(0)
 
-    def _tick_elapsed(self):
-        # The original code had some commented out logic here, but it's not relevant for the current ListWidget based UI.
-        pass
+
 
     def on_done(self, row: int, rc: int, msg: str, resume: bool):
         start = self.row_start_time.get(row, time.time())
@@ -1169,13 +1529,18 @@ class MainWindow(QMainWindow):
         item = self.task_list.item(row)
         card = self.task_list.itemWidget(item)
         
-        if "已停止" in msg:
-            status = "已停止"
+        if "已停止" in msg or "已強制停止" in msg or "已暫停" in msg:
+            status = "暫停"
             msg += "\n[提示] 您可以再次選取此項目並點擊「執行」，選擇「是」來恢復翻譯 (Resume)。"
             card.update_status(status, 0, self._fmt_sec(elapsed), "00:00")
         elif rc == 0:
-            status = "完成"
-            card.update_status(status, 100, self._fmt_sec(elapsed), "00:00")
+            if global_state.is_cancelled:
+                status = "暫停"
+                msg = "已暫停 (Graceful Stop)"
+                card.update_status(status, 0, self._fmt_sec(elapsed), "00:00")
+            else:
+                status = "完成"
+                card.update_status(status, 100, self._fmt_sec(elapsed), "00:00")
         else:
             status = "失敗"
             card.update_status(status, 0, self._fmt_sec(elapsed), "00:00")
@@ -1187,14 +1552,37 @@ class MainWindow(QMainWindow):
             stem = Path(origin_name).stem
             latest = self._find_latest_output(self.backend_books, stem)
             if latest:
-                out_dir = Path(self.cfg["output_dir"]).expanduser().resolve()
+                # Get output directory from config, default to Desktop
+                out_dir_str = self.cfg.get("output_dir", "")
+                if not out_dir_str or out_dir_str.strip() == "":
+                    out_dir = Path.home() / "Desktop"
+                else:
+                    out_dir = Path(out_dir_str).expanduser().resolve()
+                
+                # Safety check: if out_dir is home root, fallback to Desktop to avoid permission issues
+                if out_dir == Path.home():
+                    self.append_log(f"[警告] 輸出目錄設為使用者根目錄 ({out_dir}) 可能導致權限問題，自動改為桌面。")
+                    out_dir = Path.home() / "Desktop"
+
                 out_dir.mkdir(parents=True, exist_ok=True)
                 target = out_dir / latest.name
+                
+                self.append_log(f"[搬移] 來源: {latest} -> 目標: {target}")
                 shutil.copy2(latest, target)
                 self.append_log(f"[輸出] {target}")
                 self.append_log(f"✅ 翻譯完成！已輸出：{target}")
         except Exception as e:
-            self.append_log(f"[搬移輸出] 失敗：{e}")
+            self.append_log(f"[搬移輸出] 失敗：{e} (目標: {out_dir if 'out_dir' in locals() else '未知'})")
+            # Fallback to Desktop
+            try:
+                fallback_dir = Path.home() / "Desktop"
+                fallback_dir.mkdir(parents=True, exist_ok=True)
+                target = fallback_dir / latest.name
+                self.append_log(f"[自動修正] 嘗試改存到桌面: {target}")
+                shutil.copy2(latest, target)
+                self.append_log(f"✅ 翻譯完成！已輸出到桌面：{target}")
+            except Exception as e2:
+                self.append_log(f"[搬移輸出] 再次失敗 (桌面): {e2}")
 
         self.current_worker=None; self.current_row=None
         self.status_label.setText("就緒")
@@ -1206,9 +1594,27 @@ class MainWindow(QMainWindow):
         self.run_next(resume=resume)
 
     def stop_current(self):
-        if self.current_worker:
-            self.append_log("[STOP] 傳送 Ctrl+C（SIGINT）…")
-            self.current_worker.terminate_job()
+        if not self.current_worker:
+            return
+
+        self.append_log("[STOP] 收到停止信號，正在等待當前批次完成...")
+        
+        if self.current_worker.isRunning():
+            # Crucial Fix: Do NOT use terminate() as it causes SegFaults (Exit Code 139)
+            # Instead, set the cancellation flag and let the thread exit gracefully.
+            if hasattr(self.current_worker, 'terminate_job'):
+                self.current_worker.terminate_job()
+            else:
+                 # Fallback if method missing
+                 global_state.is_cancelled = True
+                 
+            # Disable the Stop button momentarily can be good, but here we just rely on the log
+            # We do NOT wait() here to avoid freezing the UI. 
+            # The thread will emit 'done' when it finishes loop.
+        else:
+             # If not running but somehow state lingers
+             global_state.is_cancelled = True
+             self.on_done(self.current_row, 1, "已暫停 🛑", False)
 
     def append_log(self, text: str):
         # 寫入 UI
@@ -1226,9 +1632,36 @@ class MainWindow(QMainWindow):
         super().closeEvent(event)
 
     def _find_latest_output(self, books_dir: Path, stem: str) -> Optional[Path]:
-        cands = [p for p in books_dir.glob(f"{stem}_bilingual.*") if p.is_file()]
+        # Prefer _bili.* over _bilingual.*
+        cands = [p for p in books_dir.glob(f"{stem}_bili.*") if p.is_file()]
+        if not cands:
+             cands = [p for p in books_dir.glob(f"{stem}_bilingual.*") if p.is_file()]
+        
         if not cands: return None
         cands.sort(key=lambda p: p.stat().st_mtime, reverse=True); return cands[0]
+
+    def clear_log(self):
+        self.log_text.clear()
+
+    def load_stylesheet(self):
+        style_path = APP_DIR / "gui" / "styles" / "dark_theme.qss"
+        if style_path.exists():
+            try:
+                qss = style_path.read_text(encoding="utf-8")
+                # Replace relative icon paths with absolute paths
+                # Use as_posix() to ensure forward slashes on Windows/macOS for CSS url()
+                icons_root = ICONS_DIR.as_posix()
+                # Handle optional quotes in the original QSS: url("icons/...") or url(icons/...)
+                # Replacement always uses quotes: url("ABSOLUTE_PATH/...")
+                qss = re.sub(r'url\((["\']?)icons/([^)]+)\1\)', f'url("{icons_root}/\\2")', qss)
+                self.setStyleSheet(qss)
+                self.append_log(f"[Theme] Loaded dark theme from {style_path}")
+            except Exception as e:
+                print(f"Failed to load stylesheet: {e}")
+                self.append_log(f"[Theme] Failed to load stylesheet: {e}")
+        else:
+            print(f"Stylesheet not found: {style_path}")
+            self.append_log(f"[Theme] Stylesheet not found: {style_path}")
 
 def main():
     print("Starting main...")
@@ -1245,4 +1678,6 @@ def main():
         traceback.print_exc()
 
 if __name__ == "__main__":
+    import multiprocessing
+    multiprocessing.freeze_support()
     main()

@@ -1,12 +1,12 @@
 [project]
-name = "bbook-maker"
-description = "The bilingual_book_maker is an AI translation tool that uses ChatGPT to assist users in creating multi-language versions of epub/txt files and books."
+name = "bili-book"
+description = "The bili_book is an AI translation tool that uses ChatGPT to assist users in creating multi-language versions of epub/txt files and books."
 readme = "README.md"
 license = {text = "MIT"}
 dynamic = ["version"]
 requires-python = ">=3.10"
 authors = [
-    { name = "yihong0618", email = "zouzou0208@gmail.com" },
+    { name = "ideo2004" },
 ]
 classifiers = [
     "License :: OSI Approved :: MIT License",
@@ -36,7 +36,7 @@ bbook_maker = "book_maker.cli:main"
 promptdown = "promptdown_cli:main"
 
 [project.urls]
-Homepage = "https://github.com/yihong0618/bilingual_book_maker"
+Homepage = "https://github.com/ideo2004/bili_book"
 
 [tool.pdm]
 plugins = ["pdm-autoexport"]

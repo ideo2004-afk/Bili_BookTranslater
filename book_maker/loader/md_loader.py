@@ -2,7 +2,7 @@ import sys
 import pickle
 from pathlib import Path
 
-from book_maker.utils import prompt_config_to_kwargs
+from book_maker.utils import prompt_config_to_kwargs, global_state
 
 from .base_loader import BaseBookLoader
 
@@ -89,6 +89,27 @@ class MarkdownBookLoader(BaseBookLoader):
     def _make_new_book(self, book):
         pass
 
+    def estimate(self):
+        print("Calculating estimate...")
+        from book_maker.utils import num_tokens_from_text
+        
+        total_tokens = 0
+        total_paragraphs = 0
+        
+        for p in self.md_paragraphs:
+            if self._is_special_text(p):
+                continue
+            total_tokens += num_tokens_from_text(p)
+            total_paragraphs += 1
+            
+        print("\n" + "="*50)
+        print("📊 Estimation Summary")
+        print("="*50)
+        print(f"Book: {self.md_name}")
+        print(f"Total Paragraphs: {total_paragraphs}")
+        print(f"Total Estimated Tokens: {total_tokens:,}")
+        print("="*50 + "\n")
+
     def make_bilingual_book(self):
         index = 0
         p_to_save_len = len(self.p_to_save)
@@ -102,6 +123,9 @@ class MarkdownBookLoader(BaseBookLoader):
                 batch_text = "\n\n".join(paragraphs)
                 if self._is_special_text(batch_text):
                     continue
+                if global_state.is_cancelled:
+                    raise KeyboardInterrupt("Cancelled by user")
+
                 if not self.resume or index // self.batch_size >= p_to_save_len:
                     try:
                         max_retries = 3
@@ -130,9 +154,11 @@ class MarkdownBookLoader(BaseBookLoader):
                 index += self.batch_size
                 if self.is_test and index > self.test_num:
                     break
+                
+                self._save_progress()
 
             self.save_file(
-                f"{Path(self.md_name).parent}/{Path(self.md_name).stem}_bilingual.md",
+                f"{Path(self.md_name).parent}/{Path(self.md_name).stem}_bili.md",
                 self.bilingual_result,
             )
 
@@ -160,7 +186,7 @@ class MarkdownBookLoader(BaseBookLoader):
             index += 1
 
         self.save_file(
-            f"{Path(self.md_name).parent}/{Path(self.md_name).stem}_bilingual_temp.txt",
+            f"{Path(self.md_name).parent}/{Path(self.md_name).stem}_bili_temp.md",
             self.bilingual_temp_result,
         )
 
@@ -175,8 +201,11 @@ class MarkdownBookLoader(BaseBookLoader):
         try:
             with open(self.bin_path, "rb") as f:
                 self.p_to_save = pickle.load(f)
+        except FileNotFoundError:
+            self.p_to_save = []
         except Exception as e:
-            raise Exception("can not load resume file") from e
+            print(f"Error loading resume file: {e}, starting from beginning.")
+            self.p_to_save = []
 
     def save_file(self, book_path, content):
         try:

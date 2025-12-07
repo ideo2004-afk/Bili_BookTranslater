@@ -19,12 +19,12 @@ generation_config = {
     "max_output_tokens": 8192,
 }
 
-safety_settings = {
-    "HATE": "BLOCK_NONE",
-    "HARASSMENT": "BLOCK_NONE",
-    "SEXUAL": "BLOCK_NONE",
-    "DANGEROUS": "BLOCK_NONE",
-}
+safety_settings = [
+    {"category": "HARM_CATEGORY_HARASSMENT", "threshold": "BLOCK_NONE"},
+    {"category": "HARM_CATEGORY_HATE_SPEECH", "threshold": "BLOCK_NONE"},
+    {"category": "HARM_CATEGORY_SEXUALLY_EXPLICIT", "threshold": "BLOCK_NONE"},
+    {"category": "HARM_CATEGORY_DANGEROUS_CONTENT", "threshold": "BLOCK_NONE"},
+]
 
 PROMPT_ENV_MAP = {
     "user": "BBM_GEMINIAPI_USER_MSG_TEMPLATE",
@@ -201,8 +201,13 @@ class Gemini(Base):
                 )
                 self.rotate_model()
             except Exception as e:
+                error_name = type(e).__name__
+                if "DefaultCredentialsError" in error_name:
+                    print(f"Translation failed due to {error_name}: {e}")
+                    raise e
+                    
                 print(
-                    f"Translation failed due to {type(e).__name__}: {e} Will sleep {delay} seconds"
+                    f"Translation failed due to {error_name}: {e} Will sleep {delay} seconds"
                 )
                 time.sleep(delay)
                 delay *= exponential_base
@@ -218,7 +223,7 @@ class Gemini(Base):
             return
 
         if self.context_flag:
-            if len(self.convo.history) > 10:
+            if len(self.convo.history) > 2:
                 self.convo.history = self.convo.history[2:]
         else:
             self.convo.history = []

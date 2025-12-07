@@ -1,5 +1,6 @@
 import os
 import pickle
+import time
 import string
 import sys
 import time
@@ -13,10 +14,12 @@ from bs4 import BeautifulSoup as bs
 from bs4 import Tag
 from bs4.element import NavigableString
 from ebooklib import ITEM_DOCUMENT, epub
+from bs4 import BeautifulSoup, NavigableString
 from rich import print
 from tqdm import tqdm
 
-from book_maker.utils import num_tokens_from_text, prompt_config_to_kwargs
+from book_maker.utils import num_tokens_from_text, global_state
+from book_maker.utils import prompt_config_to_kwargs
 
 from .base_loader import BaseBookLoader
 from .helper import EPUBBookLoaderHelper, is_text_link, not_trans
@@ -208,6 +211,9 @@ class EPUBBookLoader(BaseBookLoader):
         return p
 
     def _process_paragraph(self, p, new_p, index, p_to_save_len, thread_safe=False):
+        if global_state.is_cancelled:
+            raise KeyboardInterrupt("Cancelled by user")
+
         if self.resume and index < p_to_save_len:
             p.string = self.p_to_save[index]
         else:
@@ -315,6 +321,9 @@ class EPUBBookLoader(BaseBookLoader):
         count = 0
         wait_p_list = []
         for i in range(len(p_list)):
+            if global_state.is_cancelled:
+                print("DEBUG: Cancellation detected in translate_paragraphs_acc")
+                raise KeyboardInterrupt("Cancelled by user")
             p = p_list[i]
             
             # Check if paragraph should be skipped (special text, empty, etc.)
@@ -561,6 +570,9 @@ class EPUBBookLoader(BaseBookLoader):
         fixstart=None,
         fixend=None,
     ):
+        if global_state.is_cancelled:
+            raise KeyboardInterrupt("Cancelled by user")
+
         if self.only_filelist != "" and item.file_name not in self.only_filelist.split(
             ","
         ):
@@ -1131,6 +1143,8 @@ class EPUBBookLoader(BaseBookLoader):
                     print(f"📄 Single chapter detected - using sequential processing")
 
                 for item in document_items:
+                    if global_state.is_cancelled:
+                        raise KeyboardInterrupt("Cancelled by user")
                     index = self.process_item(
                         item, index, p_to_save_len, pbar, new_book, trans_taglist
                     )
@@ -1146,18 +1160,24 @@ class EPUBBookLoader(BaseBookLoader):
 
                 if self.accumulated_num > 1:
                     name, _ = os.path.splitext(self.epub_name)
-                    epub.write_epub(f"{name}_bilingual.epub", new_book, {})
+                    epub.write_epub(f"{name}_bili.epub", new_book, {})
             name, _ = os.path.splitext(self.epub_name)
             if self.batch_flag:
                 self.translate_model.batch()
             else:
-                epub.write_epub(f"{name}_bilingual.epub", new_book, {})
+                print(f"DEBUG: Writing epub to {os.path.abspath(f'{name}_bili.epub')}")
+                epub.write_epub(f"{name}_bili.epub", new_book, {})
+                if os.path.exists(f"{name}_bili.epub"):
+                    print(f"DEBUG: File successfully written to {os.path.abspath(f'{name}_bili.epub')}")
+                else:
+                    print(f"DEBUG: File NOT found after writing!")
             if self.accumulated_num == 1:
                 pbar.close()
         except KeyboardInterrupt as e:
             print(e)
             print("you can resume it next time")
             self._save_progress()
+            self._save_temp_book()
             self._save_temp_book()
             sys.exit(0)
         except Exception as e:
@@ -1211,6 +1231,7 @@ class EPUBBookLoader(BaseBookLoader):
             # The original code had traceback.print_exc() here, but it was likely a copy-paste error.
             # If the intention was to exit, sys.exit(0) is sufficient.
             # If an exception occurred and was caught, traceback.print_exc() would have been called in the except block.
+            # Assuming the user wants to exit if not in test mode after handling exceptions or successful completion.
             # Assuming the user wants to exit if not in test mode after handling exceptions or successful completion.
             sys.exit(0)
 
@@ -1268,7 +1289,7 @@ class EPUBBookLoader(BaseBookLoader):
                         item.content = soup.encode()
                     new_temp_book.add_item(item)
             name, _ = os.path.splitext(self.epub_name)
-            epub.write_epub(f"{name}_bilingual_temp.epub", new_temp_book, {})
+            epub.write_epub(f"{name}_bili_temp.epub", new_temp_book, {})
         except Exception as e:
             # TODO handle it
             print(e)

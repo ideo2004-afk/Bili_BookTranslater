@@ -1,8 +1,11 @@
 import sys
+import os
+import pickle
+import time
 import pickle
 from pathlib import Path
 
-from book_maker.utils import prompt_config_to_kwargs
+from book_maker.utils import prompt_config_to_kwargs, global_state
 
 from .base_loader import BaseBookLoader
 
@@ -97,6 +100,8 @@ class TXTBookLoader(BaseBookLoader):
                 for i in range(0, len(self.origin_book), self.batch_size)
             ]
             for i in sliced_list:
+                if global_state.is_cancelled:
+                    raise KeyboardInterrupt("Cancelled by user")
                 # fix the format thanks https://github.com/tudoujunha
                 batch_text = "\n".join(i)
                 if self._is_special_text(batch_text):
@@ -129,9 +134,12 @@ class TXTBookLoader(BaseBookLoader):
                 index += self.batch_size
                 if self.is_test and index > self.test_num:
                     break
+                
+                # Save progress after each batch to support Force Stop
+                self._save_progress()
 
             self.save_file(
-                f"{Path(self.txt_name).parent}/{Path(self.txt_name).stem}_bilingual.txt",
+                f"{Path(self.txt_name).parent}/{Path(self.txt_name).stem}_bili.txt",
                 self.bilingual_result,
             )
 
@@ -177,7 +185,7 @@ class TXTBookLoader(BaseBookLoader):
                 except Exception as e:
                     print(f"Failed to save stats: {e}")
             
-            sys.exit(0)
+            sys.exit(1)
             
         # Print Performance Summary (Success Case)
         if hasattr(self.translate_model, 'total_tokens') and hasattr(self.translate_model, 'total_time'):
@@ -232,7 +240,7 @@ class TXTBookLoader(BaseBookLoader):
             index += 1
 
         self.save_file(
-            f"{Path(self.txt_name).parent}/{Path(self.txt_name).stem}_bilingual_temp.txt",
+            f"{Path(self.txt_name).parent}/{Path(self.txt_name).stem}_bili_temp.txt",
             self.bilingual_temp_result,
         )
 
@@ -247,8 +255,12 @@ class TXTBookLoader(BaseBookLoader):
         try:
             with open(self.bin_path, "rb") as f:
                 self.p_to_save = pickle.load(f)
+        except FileNotFoundError:
+            print("Resume file not found, starting from beginning.")
+            self.p_to_save = []
         except Exception as e:
-            raise Exception("can not load resume file") from e
+            print(f"Error loading resume file: {e}, starting from beginning.")
+            self.p_to_save = []
 
     def save_file(self, book_path, content):
         try:

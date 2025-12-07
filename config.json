@@ -1,17 +1,20 @@
 {
-  "model": "chatgptapi",
-  "ollama_model": "gemma3:12b-it-qat",
+  "model": "gemini",
+  "ollama_model": "",
   "language": "zh-hant",
-  "temperature": 0.8,
-  "prompt": "prompt.json",
+  "temperature": 0.7,
+  "prompt": "prompt_繁中.json",
   "google_api_key": "",
   "openai_api_key": "",
   "use_accumulated": true,
-  "accumulated_num": 800,
+  "accumulated_num": 2000,
   "resume": false,
   "bilingual": true,
-  "output_dir": "/Users/ideo2004/Desktop",
+  "output_dir": "",
+  "accumulated_num_ollama": 600,
+  "accumulated_num_cloud": 2000,
   "use_context": false,
   "use_glossary": true,
-  "selected_model_display": "gemma3:12b-it-qat"
+  "selected_model_display": "gemini-2.0-flash",
+  "interval": 2.0
 }

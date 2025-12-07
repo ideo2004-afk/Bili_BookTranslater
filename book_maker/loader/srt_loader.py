@@ -6,7 +6,7 @@ import re
 import sys
 from pathlib import Path
 
-from book_maker.utils import prompt_config_to_kwargs
+from book_maker.utils import prompt_config_to_kwargs, global_state
 
 from .base_loader import BaseBookLoader
 
@@ -207,6 +207,9 @@ class SRTBookLoader(BaseBookLoader):
             for sliced in sliced_list:
                 begin, end, text = sliced
 
+                if global_state.is_cancelled:
+                    raise KeyboardInterrupt("Cancelled by user")
+
                 if not self.resume or index + (end - begin) > p_to_save_len:
                     if index < p_to_save_len:
                         self.p_to_save = self.p_to_save[:index]
@@ -273,9 +276,11 @@ class SRTBookLoader(BaseBookLoader):
                 index += end - begin
                 if self.is_test and index > self.test_num:
                     break
+                
+                self._save_progress()
 
             self.save_file(
-                f"{Path(self.srt_name).parent}/{Path(self.srt_name).stem}_bilingual.srt",
+                f"{Path(self.srt_name).parent}/{Path(self.srt_name).stem}_bili.srt",
                 self.bilingual_result,
             )
 
@@ -368,7 +373,7 @@ class SRTBookLoader(BaseBookLoader):
                 self.bilingual_temp_result.append(f"{self._get_block_text(block)}\n")
 
         self.save_file(
-            f"{Path(self.srt_name).parent}/{Path(self.srt_name).stem}_bilingual_temp.srt",
+            f"{Path(self.srt_name).parent}/{Path(self.srt_name).stem}_bili_temp.srt",
             self.bilingual_temp_result,
         )
 
@@ -388,8 +393,11 @@ class SRTBookLoader(BaseBookLoader):
                 else:
                     self.p_to_save = []
 
+        except FileNotFoundError:
+            self.p_to_save = []
         except Exception as e:
-            raise Exception("can not load resume file") from e
+            print(f"Error loading resume file: {e}, starting from beginning.")
+            self.p_to_save = []
 
     def save_file(self, book_path, content):
         try:

@@ -102,7 +102,7 @@ def parse_prompt_arg(prompt_arg):
     return prompt
 
 
-def main():
+def main(args=None):
     translate_model_list = list(MODEL_DICT.keys())
     parser = argparse.ArgumentParser()
     parser.add_argument(
@@ -333,9 +333,9 @@ So you are close to reaching the limit. You have to choose your own value, there
         type=str,
         help="""--retranslate "$translated_filepath" "file_name_in_epub" "start_str" "end_str"(optional)
         Retranslate from start_str to end_str's tag:
-        python3 "make_book.py" --book_name "test_books/animal_farm.epub" --retranslate 'test_books/animal_farm_bilingual.epub' 'index_split_002.html' 'in spite of the present book shortage which' 'This kind of thing is not a good symptom. Obviously'
+        python3 "make_book.py" --book_name "test_books/animal_farm.epub" --retranslate 'test_books/animal_farm_bili.epub' 'index_split_002.html' 'in spite of the present book shortage which' 'This kind of thing is not a good symptom. Obviously'
         Retranslate start_str's tag:
-        python3 "make_book.py" --book_name "test_books/animal_farm.epub" --retranslate 'test_books/animal_farm_bilingual.epub' 'index_split_002.html' 'in spite of the present book shortage which'
+        python3 "make_book.py" --book_name "test_books/animal_farm.epub" --retranslate 'test_books/animal_farm_bili.epub' 'index_split_002.html' 'in spite of the present book shortage which'
 """,
     )
     parser.add_argument(
@@ -415,7 +415,7 @@ So you are close to reaching the limit. You have to choose your own value, there
         action="store_true",
         help="Estimate the total number of tokens to be translated without performing the translation",
     )
-    options = parser.parse_args()
+    options = parser.parse_args(args)
 
     if not options.book_name:
         print("Error: please provide the path of your book using --book_name <path>")
@@ -449,6 +449,9 @@ So you are close to reaching the limit. You have to choose your own value, there
                 "OPENAI_API_KEY",
             )  # XXX: for backward compatibility, deprecate soon
             or env.get(
+                "BILI_OPENAI_API_KEY",
+            )
+            or env.get(
                 "BBM_OPENAI_API_KEY",
             )  # suggest adding `BBM_` prefix for all the bilingual_book_maker ENVs.
         ):
@@ -465,29 +468,29 @@ So you are close to reaching the limit. You have to choose your own value, there
                     "OpenAI API key not provided, please google how to obtain it",
                 )
     elif options.model == "caiyun":
-        API_KEY = options.caiyun_key or env.get("BBM_CAIYUN_API_KEY")
+        API_KEY = options.caiyun_key or env.get("BILI_CAIYUN_API_KEY") or env.get("BBM_CAIYUN_API_KEY")
         if not API_KEY and not options.estimate:
             raise Exception("Please provide caiyun key")
     elif options.model == "deepl":
-        API_KEY = options.deepl_key or env.get("BBM_DEEPL_API_KEY")
+        API_KEY = options.deepl_key or env.get("BILI_DEEPL_API_KEY") or env.get("BBM_DEEPL_API_KEY")
         if not API_KEY and not options.estimate:
             raise Exception("Please provide deepl key")
     elif options.model.startswith("claude"):
-        API_KEY = options.claude_key or env.get("BBM_CLAUDE_API_KEY")
+        API_KEY = options.claude_key or env.get("BILI_CLAUDE_API_KEY") or env.get("BBM_CLAUDE_API_KEY")
         if not API_KEY and not options.estimate:
             raise Exception("Please provide claude key")
     elif options.model == "customapi":
-        API_KEY = options.custom_api or env.get("BBM_CUSTOM_API")
+        API_KEY = options.custom_api or env.get("BILI_CUSTOM_API") or env.get("BBM_CUSTOM_API")
         if not API_KEY and not options.estimate:
             raise Exception("Please provide custom translate api")
     elif options.model in ["gemini", "geminipro"]:
-        API_KEY = options.gemini_key or env.get("BBM_GOOGLE_GEMINI_KEY")
+        API_KEY = options.gemini_key or env.get("GOOGLE_API_KEY") or env.get("BILI_GOOGLE_GEMINI_KEY") or env.get("BBM_GOOGLE_GEMINI_KEY") or ""
     elif options.model == "groq":
-        API_KEY = options.groq_key or env.get("BBM_GROQ_API_KEY")
+        API_KEY = options.groq_key or env.get("BILI_GROQ_API_KEY") or env.get("BBM_GROQ_API_KEY")
     elif options.model == "xai":
-        API_KEY = options.xai_key or env.get("BBM_XAI_API_KEY")
+        API_KEY = options.xai_key or env.get("BILI_XAI_API_KEY") or env.get("BBM_XAI_API_KEY")
     elif options.model.startswith("qwen-"):
-        API_KEY = options.qwen_key or env.get("BBM_QWEN_API_KEY")
+        API_KEY = options.qwen_key or env.get("BILI_QWEN_API_KEY") or env.get("BBM_QWEN_API_KEY")
     else:
         API_KEY = ""
 
