@@ -149,3 +149,6 @@ prompts/
 # Packaging files
 *.dmg
 dmg_root/
+
+# Tool specific configurations
+.agent/
