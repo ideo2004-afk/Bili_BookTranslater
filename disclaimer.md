@@ -1,14 +1,8 @@
-Disclaimer:
+# 免責聲明 (Disclaimer)
 
-1. The purpose of this project, bilingual_book_maker, is to assist users in creating multilingual versions of epub files and books. It is only applicable to books that have entered the public domain and is not intended for use with copyrighted material. We strongly advise users to read the copyright information carefully before using this project and to comply with relevant laws and regulations in order to protect their own and others' rights.
-2. In no event shall the authors or developers be liable for any loss or damage caused by the use of this project. Users assume all risks associated with the use of this project. Users must confirm that they have obtained permission from the original copyright holder or used open source EPUB files before using this project to avoid potential copyright risks.
+1. **僅限個人學習與研究使用**：本專案 (`Bili`) 之設計目的，是為了協助使用者進行技術研究、語言學習以及製作多語言版本的電子書。本工具僅適用於**已進入公有領域 (Public Domain)** 的書籍，或使用者**已取得合法授權**之文件。
+2. **嚴禁侵犯版權**：我們強烈反對並禁止使用本工具進行任何侵權行為。使用者在使用本工具翻譯任何書籍前，務必自行確認該書籍的版權狀態。若因使用者擅自翻譯、散布受版權保護之內容而產生任何法律糾紛，皆由使用者自行承擔所有法律責任，概與本專案開發者無關。
+3. **免責條款**：在任何情況下，本專案的作者與開發者均不對因使用本工具軟體而導致的任何直接、間接損失或損害承擔責任。使用本軟體的風險完全由使用者自行承擔。
+4. **API 使用規範**：本工具使用第三方 AI 服務 (如 OpenAI, Google Gemini 等) 進行翻譯。使用者需自行遵守各該服務平台的使用條款 (Terms of Use) 與隱私權政策。
 
-If you have any concerns or suggestions about the use of this project, please contact us through the issues section.
-
-
-免责声明：
-
-1. 该项目设计目的是为了帮助用户制作多语言版本的epub文件和图书，仅适用于进入公共版权领域书籍，不适用于有版权的书籍。我们强烈建议用户在使用该项目时仔细阅读其版权信息并遵守相关法律和规定，以保护自己和他人的权益。
-2. 在任何情况下，作者和开发者不对因使用该项目而导致的任何损失或损害承担任何责任。使用该项目的风险由用户自行承担。用户必须在使用该项目之前，确认其已获得了原著作权人的许可或使用了公开可用的开源EPUB文件，以避免可能存在的版权风险。
-
-如果您对该项目的使用有任何疑虑或建议，请通过 issues 与我们联系。
+如果您對本專案的使用有任何疑慮或發現潛在問題，歡迎透過 GitHub Issues 與我們聯繫。
