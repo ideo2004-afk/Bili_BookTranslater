@@ -154,3 +154,4 @@ dmg_root/
 .agent/
 
 # Local User Config
+config.json

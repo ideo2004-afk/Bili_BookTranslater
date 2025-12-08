@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-# AI Book Translator v6.5
+# AI Book Translator v1.2
 
 import sys, os, json, shutil, subprocess, time, datetime, re, threading, signal
 from pathlib import Path
@@ -178,12 +178,20 @@ class DirectWorker(QThread):
                 code = e.code if isinstance(e.code, int) else 1
                 if code == 0:
                     self.done.emit(0, "完成 ✅")
+                elif self._user_cancelled:
+                    self.done.emit(1, "已暫停 ⏸️")
                 else:
                     self.done.emit(code, f"失敗 (Exit Code: {code})")
             except KeyboardInterrupt:
-                self.done.emit(1, "已停止 🛑")
+                if self._user_cancelled:
+                    self.done.emit(1, "已暫停 ⏸️")
+                else:
+                    self.done.emit(1, "已停止 🛑")
             except Exception as e:
-                self.done.emit(1, f"錯誤: {str(e)}")
+                if self._user_cancelled:
+                    self.done.emit(1, "已暫停 ⏸️")
+                else:
+                    self.done.emit(1, f"錯誤: {str(e)}")
                 import traceback
                 self.stderr_line.emit(traceback.format_exc())
 
@@ -217,12 +225,12 @@ class SettingsWidget(QWidget):
         
         # Title
         lbl_title = QLabel("設定")
-        lbl_title.setStyleSheet("font-size: 24px; font-weight: bold; color: #f4f4f5;")
+        lbl_title.setObjectName("SettingsTitle")
         main_layout.addWidget(lbl_title)
 
         # Clarification Label
         lbl_note = QLabel("請選擇翻譯模型、語言、提示詞，本系統支援Ollama本地模型與Gemini和OpenAI等多種模型。")
-        lbl_note.setStyleSheet("color: #a1a1aa; font-size: 13px; margin-bottom: 10px;")
+        lbl_note.setObjectName("SettingsNote")
         main_layout.addWidget(lbl_note)
         
         # Scroll Area for settings form
@@ -327,20 +335,10 @@ class SettingsWidget(QWidget):
         gb_out = QGroupBox("輸出設定")
         form_out = QFormLayout()
         self.out_dir_edit = QLineEdit(self.cfg["output_dir"])
+
         btn_out = QPushButton("選擇路徑")
-        # btn_out.setFixedSize(30, 25)
+        btn_out.setObjectName("SecondaryButton")
         btn_out.setCursor(Qt.PointingHandCursor)
-        btn_out.setStyleSheet("""
-            QPushButton {
-                background-color: #27272a;
-                border: 1px solid #3f3f46;
-                border-radius: 4px;
-                color: #e4e4e7;
-            }
-            QPushButton:hover {
-                background-color: #3f3f46;
-            }
-        """)
         btn_out.clicked.connect(self.pick_output_dir)
         h_out = QHBoxLayout()
         h_out.addWidget(self.out_dir_edit)
@@ -369,39 +367,20 @@ class SettingsWidget(QWidget):
         btn_save.setFixedHeight(40)
         btn_save.setFixedWidth(120)
         btn_save.setCursor(Qt.PointingHandCursor)
-        btn_save.setStyleSheet("""
-            QPushButton {
-                background-color: #3b82f6; 
-                color: white; 
-                border-radius: 6px;
-                font-weight: bold;
-                font-size: 14px;
-            }
-            QPushButton:hover {
-                background-color: #2563eb;
-            }
-        """)
+        # Save Button
+        btn_save = QPushButton("儲存設定")
+        btn_save.setFixedHeight(40)
+        btn_save.setFixedWidth(120)
+        btn_save.setCursor(Qt.PointingHandCursor)
         btn_save.clicked.connect(self.save_settings)
 
         # Cancel Button
+
         btn_cancel = QPushButton("取消")
+        btn_cancel.setObjectName("CancelButton")
         btn_cancel.setFixedHeight(40)
         btn_cancel.setFixedWidth(120)
         btn_cancel.setCursor(Qt.PointingHandCursor)
-        btn_cancel.setStyleSheet("""
-            QPushButton {
-                background-color: transparent; 
-                color: #a1a1aa; 
-                border: 1px solid #3f3f46;
-                border-radius: 6px;
-                font-size: 14px;
-            }
-            QPushButton:hover {
-                background-color: #27272a;
-                color: white;
-                border-color: #52525b;
-            }
-        """)
         
         h_btns.addWidget(btn_save)
         h_btns.addWidget(btn_cancel)
@@ -537,24 +516,7 @@ class Sidebar(QWidget):
         super().__init__(parent)
         self.setFixedWidth(64)
         self.setObjectName("Sidebar")
-        self.setStyleSheet("""
-            QWidget#Sidebar {
-                background-color: #333333; /* zinc-950 */
-                border-right: 3px solid #27272a; /* zinc-800 */
-            }
-            QToolButton {
-                border: none;
-                border-radius: 10px;
-                padding: 8px;
-                background-color: transparent;
-            }
-            QToolButton:hover {
-                background-color: #27272a; /* zinc-800 */
-            }
-            QToolButton:checked {
-                background-color: #3f3f46; /* zinc-700 */
-            }
-        """)
+
         
         layout = QVBoxLayout(self)
         layout.setContentsMargins(8, 16, 8, 16)
@@ -613,34 +575,6 @@ class TaskCard(QWidget):
     def __init__(self, file_name, model, output_path, parent=None):
         super().__init__(parent)
         self.setObjectName("TaskCard")
-        self.setStyleSheet("""
-            QWidget#TaskCard {
-                background-color: #18181b; /* zinc-900 */
-                border: 1px solid #27272a; /* zinc-800 */
-                border-radius: 12px;
-            }
-            QWidget#TaskCard:hover {
-                border: 1px solid #3b82f6; /* blue-500 */
-                background-color: #27272a;
-            }
-            QLabel { color: #a1a1aa; }
-            QLabel#Title { 
-                color: #f4f4f5; 
-                font-weight: bold; 
-                font-size: 14px;
-            }
-            QProgressBar {
-                background-color: #444444;
-                border: none;
-                border-radius: 2px;
-                height: 4px;
-                text-align: center;
-            }
-            QProgressBar::chunk {
-                background-color: #3b82f6;
-                border-radius: 2px;
-            }
-        """)
         
         layout = QVBoxLayout(self)
         layout.setContentsMargins(16, 16, 16, 16)
@@ -664,18 +598,12 @@ class TaskCard(QWidget):
         top_row.addWidget(icon_label)
         
         self.lbl_title = QLabel(file_name)
-        self.lbl_title.setObjectName("Title")
+        self.lbl_title.setObjectName("CardTitle")
         top_row.addWidget(self.lbl_title)
         top_row.addStretch()
         
         self.lbl_status = QLabel("準備中")
-        self.lbl_status.setStyleSheet("""
-            background-color: #27272a; 
-            color: #a1a1aa; 
-            padding: 4px 8px; 
-            border-radius: 4px; 
-            font-size: 11px;
-        """)
+        self.lbl_status.setObjectName("CardStatus")
         top_row.addWidget(self.lbl_status)
         
         layout.addLayout(top_row)
@@ -683,13 +611,13 @@ class TaskCard(QWidget):
         # Info Row: Model + Duration
         info_row = QHBoxLayout()
         self.lbl_model = QLabel(model)
-        self.lbl_model.setStyleSheet("font-family: monospace; font-size: 11px;")
+        self.lbl_model.setObjectName("CardModel")
         info_row.addWidget(self.lbl_model)
         
         info_row.addWidget(QLabel("•"))
         
         self.lbl_duration = QLabel("00:00")
-        self.lbl_duration.setStyleSheet("font-family: monospace; font-size: 11px;")
+        self.lbl_duration.setObjectName("CardDuration")
         info_row.addWidget(self.lbl_duration)
         
         info_row.addStretch()
@@ -704,13 +632,13 @@ class TaskCard(QWidget):
         
         # Progress Text
         self.lbl_progress_text = QLabel("0%")
-        self.lbl_progress_text.setStyleSheet("font-size: 11px; color: #71717a;")
+        self.lbl_progress_text.setObjectName("ProgressText")
         layout.addWidget(self.lbl_progress_text)
         
         # Output Path (Bottom)
         path_row = QHBoxLayout()
         self.lbl_output = QLabel(output_path)
-        self.lbl_output.setStyleSheet("font-size: 11px; color: #71717a;")
+        self.lbl_output.setObjectName("OutputPath")
         self.lbl_output.setWordWrap(False)
         path_row.addWidget(self.lbl_output)
         layout.addLayout(path_row)
@@ -804,26 +732,13 @@ class EmptyStateWidget(QWidget):
         
         # Main layout to center the box
         main_layout = QVBoxLayout(self)
-        main_layout.setAlignment(Qt.AlignCenter)
+        main_layout.setAlignment(Qt.AlignHCenter) # Center horizontally only
+        main_layout.addSpacing(100) # Move down from top
         
         # Inner fixed-size box
         self.box = QFrame()
         self.box.setFixedSize(500, 150)
-        self.box.setStyleSheet("""
-            QFrame {
-                background-color: #18181b; /* zinc-900 */
-                border: 4px dashed #3f3f46; /* zinc-700 */
-                border-radius: 12px;
-            }
-            QFrame:hover {
-                background-color: #27272a; /* zinc-800 */
-                border-color: #52525b; /* zinc-600 */
-            }
-            QLabel {
-                background: transparent;
-                border: none;
-            }
-        """)
+        self.box.setObjectName("EmptyBox")
         
         # Layout inside the box
         box_layout = QVBoxLayout(self.box)
@@ -849,13 +764,13 @@ class EmptyStateWidget(QWidget):
         # Main Text
         lbl_main = QLabel("將檔案拖到這裡或點擊上傳")
         lbl_main.setAlignment(Qt.AlignCenter)
-        lbl_main.setStyleSheet("color: #e4e4e7; font-size: 16px; font-weight: bold;")
+        lbl_main.setObjectName("EmptyStateMain")
         box_layout.addWidget(lbl_main)
         
         # Sub Text
         lbl_sub = QLabel("支援 EPUB/TXT/SRT/MD 格式檔案")
         lbl_sub.setAlignment(Qt.AlignCenter)
-        lbl_sub.setStyleSheet("color: #71717a; font-size: 12px;")
+        lbl_sub.setObjectName("EmptyStateSub")
         box_layout.addWidget(lbl_sub)
         
         # Logo & Title Container
@@ -878,11 +793,12 @@ class EmptyStateWidget(QWidget):
         title_label = QLabel("Bili 原文書翻譯")
         title_label.setAlignment(Qt.AlignCenter)
         # Removed margin-bottom as it's now horizontal
-        title_label.setStyleSheet("font-size: 24px; font-weight: bold; color: #f4f4f5;") 
+        title_label.setObjectName("EmptyStateTitle") 
         top_layout.addWidget(title_label)
         
         main_layout.addWidget(top_container)
         main_layout.addWidget(self.box)
+        main_layout.addStretch() # Push everything up
 
     def mousePressEvent(self, event):
         if event.button() == Qt.LeftButton:
@@ -1002,7 +918,7 @@ class MainWindow(QMainWindow):
         # Log Sidebar (Right) - Part of Task View
         self.log_panel = QWidget()
         self.log_panel.setMinimumWidth(200)
-        self.log_panel.setStyleSheet("background-color: #222222; border-left: 1px solid #373737;")
+        self.log_panel.setObjectName("LogPanel")
         self.log_panel.setAttribute(Qt.WA_StyledBackground, True) # Ensure background is painted
         self.log_panel.setVisible(False)
         
@@ -1017,21 +933,13 @@ class MainWindow(QMainWindow):
         log_header_layout.setContentsMargins(10, 0, 10, 0)
         
         lbl_log_title = QLabel("執行日誌")
-        lbl_log_title.setStyleSheet("font-weight: bold; color: #d4d4d8;")
+        lbl_log_title.setObjectName("LogTitle")
         log_header_layout.addWidget(lbl_log_title)
         log_header_layout.addStretch()
         
         btn_clear_log = QPushButton("清除")
         btn_clear_log.setCursor(Qt.PointingHandCursor)
-        btn_clear_log.setStyleSheet("""
-            QPushButton {
-                background-color: transparent;
-                color: #a1a1aa;
-                border: none;
-                font-size: 12px;
-            }
-            QPushButton:hover { color: #f4f4f5; }
-        """)
+        btn_clear_log.setObjectName("ClearLogButton")
         btn_clear_log.clicked.connect(self.clear_log)
         log_header_layout.addWidget(btn_clear_log)
         
@@ -1040,14 +948,7 @@ class MainWindow(QMainWindow):
         btn_close_log.setIconSize(QSize(16, 16))
         btn_close_log.setCursor(Qt.PointingHandCursor)
         btn_close_log.setFixedSize(24, 24)
-        btn_close_log.setStyleSheet("""
-            QPushButton {
-                background-color: transparent;
-                border: none;
-                border-radius: 4px;
-            }
-            QPushButton:hover { background-color: #3f3f46; }
-        """)
+        btn_close_log.setObjectName("CloseLogButton")
         btn_close_log.clicked.connect(self.toggle_log_panel)
         log_header_layout.addWidget(btn_close_log)
         
@@ -1057,7 +958,7 @@ class MainWindow(QMainWindow):
         self.log_text = QTextEdit()
         self.log_text.setReadOnly(True)
         self.log_text.setFrameShape(QFrame.NoFrame)
-        self.log_text.setStyleSheet("background-color: #222222; color: #a1a1aa; border: none;")
+        self.log_text.setObjectName("LogTextArea")
         log_layout.addWidget(self.log_text)
         
         self.task_splitter.addWidget(self.log_panel)
@@ -1082,16 +983,16 @@ class MainWindow(QMainWindow):
         # Status Bar
         self.status_bar = QStatusBar()
         self.setStatusBar(self.status_bar)
-        self.status_bar.setStyleSheet("QStatusBar { background-color: #111111; color: #a1a1aa; border-top: 1px solid #27272a; }")
+        # Style moved to QStatusBar in qss
         self.status_bar.setSizeGripEnabled(False) # Remove size grip on Mac to look cleaner
         
         self.status_label = QLabel("就緒")
         self.status_label.setAlignment(Qt.AlignCenter)
-        self.status_label.setStyleSheet("color: #a1a1aa; padding-left: 10px;")
+        self.status_label.setObjectName("StatusLabel")
         self.status_bar.addWidget(self.status_label, 1) # Stretch factor 1 to center
         
-        version_label = QLabel("by @Lee 2025 v1.1")
-        version_label.setStyleSheet("color: #52525b; padding-right: 10px;")
+        version_label = QLabel("by @Lee 2025 v1.2")
+        version_label.setObjectName("VersionLabel")
         self.status_bar.addPermanentWidget(version_label)
 
         self.queue = []; self.current_worker = None; self.current_row = None
@@ -1112,7 +1013,7 @@ class MainWindow(QMainWindow):
             if p.name.startswith("."): continue # skip hidden files
             if "_bili" in p.name or "_bilingual" in p.name: continue
             if p.suffix.lower() == '.json': continue
-            if p.suffix.lower() not in ['.epub', '.txt', '.srt', '.md']: continue
+            if p.suffix.lower() not in ['.epub', '.txt', '.srt', '.md', '.docx']: continue
             
             # Check modification time to sort
             files.append((p.stat().st_mtime, p))
@@ -1154,16 +1055,21 @@ class MainWindow(QMainWindow):
         # Ensure we are on task view
         self.switch_view(0)
         
-        files, _ = QFileDialog.getOpenFileNames(self, "選擇檔案", str(Path.home()), "Supported (*.epub *.txt *.srt);;All Files (*)")
+        files, _ = QFileDialog.getOpenFileNames(self, "選擇檔案", str(Path.home()), "Supported (*.epub *.txt *.srt *.docx);;All Files (*)")
         for f in files:
             p = Path(f)
             if self._is_supported_source(p): self.add_job_and_run_immediately(f)
 
     def _is_supported_source(self, p: Path) -> bool:
-        suffix_ok = p.suffix.lower() in {".epub",".txt",".srt"}
+        suffix_ok = p.suffix.lower() in {".epub",".txt",".srt", ".docx"}
         reject = ("_bili" in p.stem.lower()) or ("_bilingual" in p.stem.lower()) or (".temp" in p.name.lower()) or p.name.lower().endswith(".log")
         if not suffix_ok:
-            QMessageBox.critical(self, "不支援的檔案", f"只支援：.epub, .txt, .srt\n{p}"); return False
+            # Special hint for .doc
+            if p.suffix.lower() == ".doc":
+                QMessageBox.critical(self, "不支援的檔案", f"不支援舊版 Word (.doc)。\n請先另存為 .docx 格式再試。\n{p}")
+            else:
+                QMessageBox.critical(self, "不支援的檔案", f"只支援：.epub, .txt, .srt, .docx\n{p}")
+            return False
         if reject:
             QMessageBox.critical(self, "無效的輸入", "這看起來是輸出檔或暫存檔（*_bili.*, *_bilingual.*, *.temp*, *.log*），請不要丟入。"); return False
         return True

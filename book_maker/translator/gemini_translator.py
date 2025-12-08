@@ -205,6 +205,10 @@ class Gemini(Base):
                 if "DefaultCredentialsError" in error_name:
                     print(f"Translation failed due to {error_name}: {e}")
                     raise e
+                
+                if "PermissionDenied" in error_name and "leaked" in str(e):
+                    print(f"Translation failed due to leaked API key: {e}")
+                    raise e
                     
                 print(
                     f"Translation failed due to {error_name}: {e} Will sleep {delay} seconds"

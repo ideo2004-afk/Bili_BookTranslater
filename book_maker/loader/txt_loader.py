@@ -10,7 +10,15 @@ from book_maker.utils import prompt_config_to_kwargs, global_state
 from .base_loader import BaseBookLoader
 
 
-class TXTBookLoader(BaseBookLoader):
+from .accumulation_mixin import AccumulationMixin
+
+
+class Msg:
+    def __init__(self, text):
+        self.text = text
+
+
+class TXTBookLoader(BaseBookLoader, AccumulationMixin):
     def __init__(
         self,
         txt_name,
@@ -29,8 +37,10 @@ class TXTBookLoader(BaseBookLoader):
         source_lang="auto",
         parallel_workers=1,
         glossary_path=None,
+        accumulated_num=1,
     ) -> None:
         self.txt_name = txt_name
+        self.accumulated_num = accumulated_num
         self.translate_model = model(
             key,
             language,
@@ -42,17 +52,14 @@ class TXTBookLoader(BaseBookLoader):
         )
         self.is_test = is_test
         self.p_to_save = []
-        self.bilingual_result = []
-        self.bilingual_temp_result = []
         self.test_num = test_num
-        self.batch_size = 10
         self.single_translate = single_translate
         self.context_flag = context_flag
         self.parallel_workers = max(1, parallel_workers)
 
         try:
             with open(f"{txt_name}", encoding="utf-8") as f:
-                self.origin_book = f.read().splitlines()
+                self.origin_book = [Msg(line.strip()) for line in f.read().splitlines() if line.strip()]
 
         except Exception as e:
             raise Exception("can not load file") from e
@@ -76,10 +83,10 @@ class TXTBookLoader(BaseBookLoader):
         total_tokens = 0
         total_paragraphs = 0
         
-        for line in self.origin_book:
-            if self._is_special_text(line):
+        for msg in self.origin_book:
+            if self._is_special_text(msg.text):
                 continue
-            total_tokens += num_tokens_from_text(line)
+            total_tokens += num_tokens_from_text(msg.text)
             total_paragraphs += 1
             
         print("\n" + "="*50)
@@ -95,99 +102,27 @@ class TXTBookLoader(BaseBookLoader):
         p_to_save_len = len(self.p_to_save)
 
         try:
-            sliced_list = [
-                self.origin_book[i : i + self.batch_size]
-                for i in range(0, len(self.origin_book), self.batch_size)
-            ]
-            for i in sliced_list:
-                if global_state.is_cancelled:
-                    raise KeyboardInterrupt("Cancelled by user")
-                # fix the format thanks https://github.com/tudoujunha
-                batch_text = "\n".join(i)
-                if self._is_special_text(batch_text):
-                    continue
-                if not self.resume or index // self.batch_size >= p_to_save_len:
-                    try:
-                        max_retries = 3
-                        retry_count = 0
-                        while retry_count < max_retries:
-                            try:
-                                temp = self.translate_model.translate(batch_text)
-                                break
-                            except AttributeError as ae:
-                                print(f"翻译出错: {ae}")
-                                retry_count += 1
-                                if retry_count == max_retries:
-                                    raise Exception("翻译模型初始化失败") from ae
-                    except Exception as e:
-                        print(f"翻译过程中出错: {e}")
-                        raise Exception("翻译过程中出现错误") from e
-
-                    self.p_to_save.append(temp)
-                    if not self.single_translate:
-                        self.bilingual_result.append(batch_text)
-                    self.bilingual_result.append(temp)
-                else:
-                    if not self.single_translate:
-                        self.bilingual_result.append(batch_text)
-                    self.bilingual_result.append(self.p_to_save[index // self.batch_size])
-                index += self.batch_size
-                if self.is_test and index > self.test_num:
-                    break
-                
-                # Save progress after each batch to support Force Stop
-                self._save_progress()
+            if self.accumulated_num > 1:
+                self.translate_paragraphs_acc(self.origin_book, self.accumulated_num, index, p_to_save_len)
+            else:
+                # Fallback to old behavior but using Msg objects? 
+                # Or just force accumulation logic with accumulated_num=1 (which is essentially line by line)
+                # The Mixin handles batching logic. If accumulated_num is small, it just sends frequently.
+                # Let's reuse the Mixin logic for consistency, it handles single items if they exceed limit or list is processed.
+                # Actually, if generated config has accumulated_num=1, we should probably stick to Mixin for consistency.
+                self.translate_paragraphs_acc(self.origin_book, self.accumulated_num, index, p_to_save_len)
 
             self.save_file(
-                f"{Path(self.txt_name).parent}/{Path(self.txt_name).stem}_bili.txt",
-                self.bilingual_result,
+                f"{Path(self.txt_name).parent}/{Path(self.txt_name).stem}_bili.txt"
             )
 
         except (KeyboardInterrupt, Exception) as e:
             print(e)
             print("you can resume it next time")
             self._save_progress()
-            self._save_temp_book()
-            
-            # Print Performance Summary
-            if hasattr(self.translate_model, 'total_tokens') and hasattr(self.translate_model, 'total_time'):
-                total_tokens = self.translate_model.total_tokens
-                total_time = self.translate_model.total_time
-                avg_speed = total_tokens / total_time if total_time > 0 else 0
-                
-                print("\n" + "="*50)
-                print("📊 Translation Performance Summary")
-                print("="*50)
-                print(f"Model: {self.translate_model.model}")
-                if hasattr(self, 'accumulated_num'):
-                    print(f"Accumulated Num: {self.accumulated_num}")
-                if hasattr(self, 'context_flag'):
-                    print(f"Use Context: {self.context_flag}")
-                print(f"Total Tokens Processed: {total_tokens:,}")
-                print(f"Total Translation Time: {total_time:.2f}s")
-                print(f"Average Speed: {avg_speed:.2f} tokens/s")
-                print("="*50 + "\n")
-                
-                # Optional: Save to file
-                try:
-                    os.makedirs("log", exist_ok=True)
-                    with open("log/translation_stats.txt", "a", encoding="utf-8") as f:
-                        f.write(f"\n--- {time.strftime('%Y-%m-%d %H:%M:%S')} ---\n")
-                        f.write(f"Book: {self.txt_name}\n")
-                        f.write(f"Model: {self.translate_model.model}\n")
-                        if hasattr(self, 'accumulated_num'):
-                            f.write(f"Accumulated Num: {self.accumulated_num}\n")
-                        if hasattr(self, 'context_flag'):
-                            f.write(f"Use Context: {self.context_flag}\n")
-                        f.write(f"Total Tokens: {total_tokens}\n")
-                        f.write(f"Total Time: {total_time:.2f}s\n")
-                        f.write(f"Avg Speed: {avg_speed:.2f} t/s\n")
-                except Exception as e:
-                    print(f"Failed to save stats: {e}")
-            
             sys.exit(1)
             
-        # Print Performance Summary (Success Case)
+        # Print Performance Summary
         if hasattr(self.translate_model, 'total_tokens') and hasattr(self.translate_model, 'total_time'):
             total_tokens = self.translate_model.total_tokens
             total_time = self.translate_model.total_time
@@ -197,10 +132,6 @@ class TXTBookLoader(BaseBookLoader):
             print("📊 Translation Performance Summary")
             print("="*50)
             print(f"Model: {self.translate_model.model}")
-            if hasattr(self, 'accumulated_num'):
-                print(f"Accumulated Num: {self.accumulated_num}")
-            if hasattr(self, 'context_flag'):
-                print(f"Use Context: {self.context_flag}")
             print(f"Total Tokens Processed: {total_tokens:,}")
             print(f"Total Translation Time: {total_time:.2f}s")
             print(f"Average Speed: {avg_speed:.2f} tokens/s")
@@ -213,36 +144,30 @@ class TXTBookLoader(BaseBookLoader):
                     f.write(f"\n--- {time.strftime('%Y-%m-%d %H:%M:%S')} ---\n")
                     f.write(f"Book: {self.txt_name}\n")
                     f.write(f"Model: {self.translate_model.model}\n")
-                    if hasattr(self, 'accumulated_num'):
-                        f.write(f"Accumulated Num: {self.accumulated_num}\n")
-                    if hasattr(self, 'context_flag'):
-                        f.write(f"Use Context: {self.context_flag}\n")
                     f.write(f"Total Tokens: {total_tokens}\n")
                     f.write(f"Total Time: {total_time:.2f}s\n")
                     f.write(f"Avg Speed: {avg_speed:.2f} t/s\n")
             except Exception as e:
                 print(f"Failed to save stats: {e}")
 
+    def _update_paragraph(self, msg, temp):
+        # We need to update the msg object with the translation
+        # But wait, for TXT, we want to print Bilingual result.
+        # Original code used self.bilingual_result list.
+        # Now we iterate self.origin_book.
+        # p_to_save stores just the translations.
+        
+        # We can update msg.text to be bilingual?
+        # Or we can reconstruct the book from p_to_save and origin_book at the end?
+        # The Mixin iterates and calls _update_paragraph.
+        
+        if self.single_translate:
+            msg.text = temp
+        else:
+            msg.text = f"{msg.text}\n{temp}"
+
     def _save_temp_book(self):
-        index = 0
-        sliced_list = [
-            self.origin_book[i : i + self.batch_size]
-            for i in range(0, len(self.origin_book), self.batch_size)
-        ]
-
-        for i in range(len(sliced_list)):
-            batch_text = "".join(sliced_list[i])
-            self.bilingual_temp_result.append(batch_text)
-            if self._is_special_text(self.origin_book[i]):
-                continue
-            if index < len(self.p_to_save):
-                self.bilingual_temp_result.append(self.p_to_save[index])
-            index += 1
-
-        self.save_file(
-            f"{Path(self.txt_name).parent}/{Path(self.txt_name).stem}_bili_temp.txt",
-            self.bilingual_temp_result,
-        )
+        pass
 
     def _save_progress(self):
         try:
@@ -262,11 +187,10 @@ class TXTBookLoader(BaseBookLoader):
             print(f"Error loading resume file: {e}, starting from beginning.")
             self.p_to_save = []
 
-    def save_file(self, book_path, content):
+    def save_file(self, book_path):
         try:
             with open(book_path, "w", encoding="utf-8") as f:
-                # Filter out None and convert to string to avoid TypeError
-                valid_content = [str(c) for c in content if c is not None]
-                f.write("\n".join(valid_content))
+                # Reconstruct content from origin_book (which now has updated text)
+                f.write("\n\n".join([msg.text for msg in self.origin_book]))
         except Exception as e:
             raise Exception("can not save file") from e
