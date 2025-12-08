@@ -19,6 +19,11 @@
     *   翻譯到一半出錯或想暫停？隨時可以從中斷點繼續，不會浪費已翻譯的進度與 Token。
 *   **並行處理**：支援多執行緒並行翻譯，大幅提升速度。
 
+<img width="929" height="525" alt="截圖 2025-12-08 下午5 59 33" src="https://github.com/user-attachments/assets/9009fae9-375b-4406-a762-c70ae1824abf" />
+
+<img width="931" height="681" alt="截圖 2025-12-08 下午5 59 49" src="https://github.com/user-attachments/assets/a927b0b6-504d-47f6-b32e-6df3ac1b61ac" />
+
+
 ---
 
 ## 📢 最新版本 (Release v1.1.0)
