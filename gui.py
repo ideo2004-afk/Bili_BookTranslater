@@ -991,11 +991,12 @@ class MainWindow(QMainWindow):
         self.status_label.setObjectName("StatusLabel")
         self.status_bar.addWidget(self.status_label, 1) # Stretch factor 1 to center
         
-        version_label = QLabel("by @Lee 2025 v1.2")
+        version_label = QLabel("by @Lee 2025 v1.2.1")
         version_label.setObjectName("VersionLabel")
         self.status_bar.addPermanentWidget(version_label)
 
         self.queue = []; self.current_worker = None; self.current_row = None
+        self.should_continue_queue = False
         self.row_start_time = {}
 
         self.append_log(f"[APP] APP_DIR={APP_DIR}")
@@ -1300,7 +1301,9 @@ class MainWindow(QMainWindow):
         self.current_worker = DirectWorker(args, str(USER_DATA_DIR), env=env)
         self.current_worker.stdout_line.connect(lambda line, row=r: self.on_stdout(row, line))
         self.current_worker.stderr_line.connect(lambda line, row=r: self.on_stderr(row, line))
-        self.current_worker.done.connect(lambda rc, msg, row=r: self.on_done(row, rc, msg, resume))
+        self.current_worker.done.connect(lambda rc, msg, row=r: self.on_done(row, rc, msg))
+        # Handle thread lifecycle properly
+        self.current_worker.finished.connect(lambda row=r, resume_flag=resume: self.on_worker_finished(row, resume_flag))
         self.current_worker.start()
 
     def on_stdout(self, row: int, line: str):
@@ -1428,31 +1431,41 @@ class MainWindow(QMainWindow):
 
 
 
-    def on_done(self, row: int, rc: int, msg: str, resume: bool):
+    def on_done(self, row: int, rc: int, msg: str):
+        # NOTE: Do NOT destroy self.current_worker here. It is still running (emitting this signal).
+        # We just update UI and set the flag for the finished() handler.
+        
         start = self.row_start_time.get(row, time.time())
         elapsed = max(0, int(time.time() - start))
         
         item = self.task_list.item(row)
         card = self.task_list.itemWidget(item)
         
+        status = "失敗"
+        
         if "已停止" in msg or "已強制停止" in msg or "已暫停" in msg:
             status = "暫停"
             msg += "\n[提示] 您可以再次選取此項目並點擊「執行」，選擇「是」來恢復翻譯 (Resume)。"
             card.update_status(status, 0, self._fmt_sec(elapsed), "00:00")
+            self.should_continue_queue = False
         elif rc == 0:
             if global_state.is_cancelled:
                 status = "暫停"
                 msg = "已暫停 (Graceful Stop)"
                 card.update_status(status, 0, self._fmt_sec(elapsed), "00:00")
+                self.should_continue_queue = False
             else:
                 status = "完成"
                 card.update_status(status, 100, self._fmt_sec(elapsed), "00:00")
+                self.should_continue_queue = True
         else:
             status = "失敗"
             card.update_status(status, 0, self._fmt_sec(elapsed), "00:00")
+            self.should_continue_queue = True # Continue even if failed? Usually yes for batch processing
             
         self.append_log(msg)
 
+        # File moving logic remains here as it's UI/Business logic, not thread management
         try:
             origin_name = item.data(ROLE_ORIGIN_NAME)
             stem = Path(origin_name).stem
@@ -1478,7 +1491,7 @@ class MainWindow(QMainWindow):
                 self.append_log(f"[輸出] {target}")
                 self.append_log(f"✅ 翻譯完成！已輸出：{target}")
         except Exception as e:
-            self.append_log(f"[搬移輸出] 失敗：{e} (目標: {out_dir if 'out_dir' in locals() else '未知'})")
+            self.append_log(f"[搬移輸出] 失敗：{e}")
             # Fallback to Desktop
             try:
                 fallback_dir = Path.home() / "Desktop"
@@ -1490,14 +1503,17 @@ class MainWindow(QMainWindow):
             except Exception as e2:
                 self.append_log(f"[搬移輸出] 再次失敗 (桌面): {e2}")
 
-        self.current_worker=None; self.current_row=None
+    def on_worker_finished(self, row: int, resume: bool):
+        # Now it is safe to cleanup the worker
+        self.current_worker = None
+        self.current_row = None
         self.status_label.setText("就緒")
         
-        # 如果是手動停止，不要繼續執行佇列中的下一個任務
-        if status == "已停止":
-            return
-            
-        self.run_next(resume=resume)
+        if self.should_continue_queue:
+            self.run_next(resume=resume)
+        else:
+            # Queue stopped
+            pass
 
     def stop_current(self):
         if not self.current_worker:

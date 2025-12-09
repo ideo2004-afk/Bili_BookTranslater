@@ -114,6 +114,16 @@ class EPUBBookLoader(BaseBookLoader):
         epub.EpubWriter._write_items = _write_items_patch
         epub.EpubReader._check_deprecated = _check_deprecated
 
+        # monkey patch for missing files (e.g. iTunesMetadata.plist)
+        def _read_file_patch(obj, name):
+            try:
+                return obj.zf.read(name)
+            except KeyError:
+                print(f"Warning: File '{name}' in manifest is missing from archive. Using empty content.")
+                return b""
+
+        epub.EpubReader.read_file = _read_file_patch
+
         try:
             self.origin_book = epub.read_epub(self.epub_name)
         except Exception:
