@@ -200,6 +200,12 @@ class Gemini(Base):
                     f"Translation failed due to BlockedPromptException: {e} Attempting to switch model..."
                 )
                 self.rotate_model()
+            except ValueError as e:
+                # This usually happens when Gemini blocks the response (empty parts)
+                print(f"Translation failed due to Safety/Empty Response: {e}.")
+                # Don't retry endlessly for safety blocks
+                print("⚠️  Gemini refused to translate this segment (Safety Block). Returning original text to skip...")
+                return text
             except Exception as e:
                 error_name = type(e).__name__
                 if "DefaultCredentialsError" in error_name:
