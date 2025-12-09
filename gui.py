@@ -991,7 +991,7 @@ class MainWindow(QMainWindow):
         self.status_label.setObjectName("StatusLabel")
         self.status_bar.addWidget(self.status_label, 1) # Stretch factor 1 to center
         
-        version_label = QLabel("by @Lee 2025 v1.2.1")
+        version_label = QLabel("by @Lee 2025 v1.2.2")
         version_label.setObjectName("VersionLabel")
         self.status_bar.addPermanentWidget(version_label)
 
@@ -1315,6 +1315,10 @@ class MainWindow(QMainWindow):
         self._parse_progress(row, line)
 
     def _parse_progress(self, row: int, line: str):
+        # Prevent progress update from overwriting "Pause" status if stopped
+        if global_state.is_cancelled:
+            return
+
         ansi_escape = re.compile(r'\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])')
         clean_line = ansi_escape.sub('', line)
 
@@ -1453,6 +1457,9 @@ class MainWindow(QMainWindow):
                 status = "暫停"
                 msg = "已暫停 (Graceful Stop)"
                 card.update_status(status, 0, self._fmt_sec(elapsed), "00:00")
+                # Force repaint to ensure status is updated immediately
+                card.repaint()
+                QApplication.processEvents()
                 self.should_continue_queue = False
             else:
                 status = "完成"
