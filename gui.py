@@ -229,7 +229,7 @@ class SettingsWidget(QWidget):
         main_layout.addWidget(lbl_title)
 
         # Clarification Label
-        lbl_note = QLabel("請選擇翻譯模型、語言、提示詞，本系統支援Ollama本地模型與Gemini和OpenAI等多種模型。")
+        lbl_note = QLabel("請選擇翻譯模型、語言、提示詞，Gemini和OpenAI需填入API Key。")
         lbl_note.setObjectName("SettingsNote")
         main_layout.addWidget(lbl_note)
         
@@ -745,22 +745,7 @@ class EmptyStateWidget(QWidget):
         box_layout.setAlignment(Qt.AlignCenter)
         box_layout.setSpacing(2)
         box_layout.setContentsMargins(4, 4, 4, 4)
-        
-        # Icon (Smaller)
-        icon_label = QLabel()
-        icon_label.setAlignment(Qt.AlignCenter)
-        icon_path = ICONS_DIR / "upload.svg"
-        if icon_path.exists():
-            pixmap = QIcon(str(icon_path)).pixmap(24, 24) # Reduced size
-            if not pixmap.isNull():
-                 from PySide6.QtGui import QPainter, QColor
-                 painter = QPainter(pixmap)
-                 painter.setCompositionMode(QPainter.CompositionMode_SourceIn)
-                 painter.fillRect(pixmap.rect(), QColor("#71717a"))
-                 painter.end()
-                 icon_label.setPixmap(pixmap)
-        box_layout.addWidget(icon_label)
-        
+                
         # Main Text
         lbl_main = QLabel("將檔案拖到這裡或點擊上傳")
         lbl_main.setAlignment(Qt.AlignCenter)
@@ -825,8 +810,7 @@ class MainWindow(QMainWindow):
         defaults = {"model":"gemini","ollama_model":"","language":"zh-hant",
                     "temperature":0.7,"prompt":"prompt_繁中.json", 
                     "google_api_key": "", "openai_api_key": "",
-                    "use_accumulated":False, "accumulated_num":800,
-                    "accumulated_num_ollama": 600, "accumulated_num_cloud": 1500,
+                    "use_accumulated":False, "accumulated_num":600,
                     "resume":False, "bilingual":True, "output_dir":str(Path.home()/ "Desktop"),
                     "selected_model_display": "gemini-2.5-pro"}
         self.cfg = load_config(defaults)

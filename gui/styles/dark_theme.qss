@@ -287,17 +287,20 @@ QFrame#EmptyBox:hover {
 }
 
 QLabel#EmptyStateMain {
+    background-color: transparent;
     color: #e4e4e7; 
     font-size: 16px; 
     font-weight: bold;
 }
 
 QLabel#EmptyStateSub {
+    background-color: transparent;
     color: #71717a; 
     font-size: 12px;
 }
 
 QLabel#EmptyStateTitle {
+    background-color: transparent;
     font-size: 24px; 
     font-weight: bold; 
     color: #f4f4f5;
@@ -311,11 +314,13 @@ QLabel#LogTitle {
 
 /* Status Bar */
 QLabel#StatusLabel {
+    background-color: transparent;
     color: #a1a1aa; 
     padding-left: 10px;
 }
 
 QLabel#VersionLabel {
+    background-color: transparent;
     color: #52525b; 
     padding-right: 10px;
 }

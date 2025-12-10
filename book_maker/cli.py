@@ -395,8 +395,8 @@ So you are close to reaching the limit. You have to choose your own value, there
     parser.add_argument(
         "--interval",
         type=float,
-        default=0.01,
-        help="Request interval in seconds (e.g., 0.1 for 100ms). Currently only supported for Gemini models. Default: 0.01",
+        default=5.0,
+        help="Request interval in seconds (e.g., 0.1 for 100ms). Currently only supported for Gemini models. Default: 5.0",
     )
     parser.add_argument(
         "--parallel-workers",
