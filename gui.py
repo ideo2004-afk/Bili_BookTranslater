@@ -649,13 +649,13 @@ class TaskCard(QWidget):
     def update_status(self, status, progress=0, duration="00:00", remaining="00:00"):
         self.lbl_status.setText(status)
         if status == "執行中…":
-            self.lbl_status.setStyleSheet("background-color: #2563eb; color: #eeeeee; padding: 4px 8px; border-radius: 4px; font-size: 11px;")
+            self.lbl_status.setStyleSheet("background-color: #3b82f6; color: #eeeeee; padding: 4px 8px; border-radius: 4px; font-size: 11px;")
         elif status == "完成":
-            self.lbl_status.setStyleSheet("background-color: #2563eb; color: #eeeeee; padding: 4px 8px; border-radius: 4px; font-size: 11px;")
+            self.lbl_status.setStyleSheet("background-color: #3b82f6; color: #eeeeee; padding: 4px 8px; border-radius: 4px; font-size: 11px;")
         elif "失敗" in status or "停止" in status or "暫停" in status:
             self.lbl_status.setStyleSheet("background-color: #7f1d1d; color: #eeeeee; padding: 4px 8px; border-radius: 4px; font-size: 11px;")
         else:
-            self.lbl_status.setStyleSheet("background-color: #2563eb; color: #eeeeee; padding: 4px 8px; border-radius: 4px; font-size: 11px;")
+            self.lbl_status.setStyleSheet("background-color: #3b82f6; color: #eeeeee; padding: 4px 8px; border-radius: 4px; font-size: 11px;")
             
         self.pbar.setValue(progress)
         self.lbl_duration.setText(duration)
@@ -1040,20 +1040,20 @@ class MainWindow(QMainWindow):
         # Ensure we are on task view
         self.switch_view(0)
         
-        files, _ = QFileDialog.getOpenFileNames(self, "選擇檔案", str(Path.home()), "Supported (*.epub *.txt *.srt *.docx);;All Files (*)")
+        files, _ = QFileDialog.getOpenFileNames(self, "選擇檔案", str(Path.home()), "Supported (*.epub *.txt *.srt *.docx *.md);;All Files (*)")
         for f in files:
             p = Path(f)
             if self._is_supported_source(p): self.add_job_and_run_immediately(f)
 
     def _is_supported_source(self, p: Path) -> bool:
-        suffix_ok = p.suffix.lower() in {".epub",".txt",".srt", ".docx"}
+        suffix_ok = p.suffix.lower() in {".epub",".txt",".srt", ".docx", ".md"}
         reject = ("_bili" in p.stem.lower()) or (".temp" in p.name.lower()) or p.name.lower().endswith(".log")
         if not suffix_ok:
             # Special hint for .doc
             if p.suffix.lower() == ".doc":
                 QMessageBox.critical(self, "不支援的檔案", f"不支援舊版 Word (.doc)。\n請先另存為 .docx 格式再試。\n{p}")
             else:
-                QMessageBox.critical(self, "不支援的檔案", f"只支援：.epub, .txt, .srt, .docx\n{p}")
+                QMessageBox.critical(self, "不支援的檔案", f"只支援：.epub, .txt, .srt, .docx, .md\n{p}")
             return False
         if reject:
             QMessageBox.critical(self, "無效的輸入", "這看起來是輸出檔或暫存檔（*_bili.*, *.temp*, *.log*），請不要丟入。"); return False
@@ -1473,6 +1473,7 @@ class MainWindow(QMainWindow):
             return
 
         self.append_log("[STOP] 收到停止信號，正在等待當前批次完成...")
+        self.status_label.setText("收到停止信號，正在等待當前批次完成...")
         
         if self.current_worker.isRunning():
             # Crucial Fix: Do NOT use terminate() as it causes SegFaults (Exit Code 139)
