@@ -364,3 +364,5 @@ QStatusBar {
     color: #a1a1aa; 
     border-top: 1px solid #27272a; 
 }
+
+

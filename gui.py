@@ -604,6 +604,7 @@ class TaskCard(QWidget):
         
         self.lbl_status = QLabel("準備中")
         self.lbl_status.setObjectName("CardStatus")
+        self.lbl_status.setAlignment(Qt.AlignCenter)
         top_row.addWidget(self.lbl_status)
         
         layout.addLayout(top_row)
@@ -651,17 +652,16 @@ class TaskCard(QWidget):
         if status == "執行中…":
             self.lbl_status.setStyleSheet("background-color: #3b82f6; color: #eeeeee; padding: 4px 8px; border-radius: 4px; font-size: 11px;")
         elif status == "完成":
-            self.lbl_status.setStyleSheet("background-color: #3b82f6; color: #eeeeee; padding: 4px 8px; border-radius: 4px; font-size: 11px;")
+            self.lbl_status.setStyleSheet("background-color: #14532d; color: #eeeeee; padding: 4px 8px; border-radius: 4px; font-size: 11px;")
         elif "失敗" in status or "停止" in status or "暫停" in status:
             self.lbl_status.setStyleSheet("background-color: #7f1d1d; color: #eeeeee; padding: 4px 8px; border-radius: 4px; font-size: 11px;")
         else:
-            self.lbl_status.setStyleSheet("background-color: #3b82f6; color: #eeeeee; padding: 4px 8px; border-radius: 4px; font-size: 11px;")
+            self.lbl_status.setStyleSheet("background-color: #27272a; color: #a1a1aa; padding: 4px 8px; border-radius: 4px; font-size: 11px;")
             
         self.pbar.setValue(progress)
         self.lbl_duration.setText(duration)
-        
-        if progress > 0:
-             self.lbl_progress_text.setText(f"{progress}% (還需 {remaining})")
+        if remaining != "00:00":
+             self.lbl_duration.setText(f"{duration} (剩餘 {remaining})")
         else:
              self.lbl_progress_text.setText(f"{progress}%")
 
@@ -769,7 +769,7 @@ class EmptyStateWidget(QWidget):
         logo_label.setAlignment(Qt.AlignCenter)
         logo_path = ICONS_DIR / "logo.svg"
         if logo_path.exists():
-            pixmap = QIcon(str(logo_path)).pixmap(64, 64) # Slightly smaller for horizontal
+            pixmap = QIcon(str(logo_path)).pixmap(64, 64) 
             if not pixmap.isNull():
                 logo_label.setPixmap(pixmap)
         top_layout.addWidget(logo_label)
@@ -777,7 +777,6 @@ class EmptyStateWidget(QWidget):
         # Title
         title_label = QLabel("Bili 原文書翻譯")
         title_label.setAlignment(Qt.AlignCenter)
-        # Removed margin-bottom as it's now horizontal
         title_label.setObjectName("EmptyStateTitle") 
         top_layout.addWidget(title_label)
         
@@ -810,7 +809,7 @@ class MainWindow(QMainWindow):
         defaults = {"model":"gemini","ollama_model":"","language":"zh-hant",
                     "temperature":0.7,"prompt":"prompt_繁中.json", 
                     "google_api_key": "", "openai_api_key": "",
-                    "use_accumulated":False, "accumulated_num":600,
+                    "use_accumulated":True, "accumulated_num":600,
                     "resume":False, "bilingual":True, "output_dir":str(Path.home()/ "Desktop"),
                     "selected_model_display": "gemini-2.5-pro"}
         self.cfg = load_config(defaults)
