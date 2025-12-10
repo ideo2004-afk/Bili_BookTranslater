@@ -1488,8 +1488,8 @@ class MainWindow(QMainWindow):
             # The thread will emit 'done' when it finishes loop.
         else:
              # If not running but somehow state lingers
-             global_state.is_cancelled = True
-             self.on_done(self.current_row, 1, "已暫停 🛑", False)
+             # But we should ensure the UI updates if the thread was stuck
+             self.on_done(self.current_row, 1, "已暫停", False)
 
     def append_log(self, text: str):
         # 寫入 UI
