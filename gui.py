@@ -178,18 +178,18 @@ class DirectWorker(QThread):
                 code = e.code if isinstance(e.code, int) else 1
                 if code == 0:
                     self.done.emit(0, "完成 ✅")
-                elif self._user_cancelled:
-                    self.done.emit(1, "已暫停 ⏸️")
+                if self._user_cancelled:
+                    self.done.emit(1, "已暫停")
                 else:
                     self.done.emit(code, f"失敗 (Exit Code: {code})")
             except KeyboardInterrupt:
                 if self._user_cancelled:
-                    self.done.emit(1, "已暫停 ⏸️")
+                    self.done.emit(1, "已暫停")
                 else:
-                    self.done.emit(1, "已停止 🛑")
+                    self.done.emit(1, "已暫停")
             except Exception as e:
                 if self._user_cancelled:
-                    self.done.emit(1, "已暫停 ⏸️")
+                    self.done.emit(1, "已暫停")
                 else:
                     self.done.emit(1, f"錯誤: {str(e)}")
                 import traceback
@@ -996,7 +996,7 @@ class MainWindow(QMainWindow):
         for p in self.backend_books.iterdir():
             if not p.is_file(): continue
             if p.name.startswith("."): continue # skip hidden files
-            if "_bili" in p.name or "_bilingual" in p.name: continue
+            if "_bili" in p.name: continue
             if p.suffix.lower() == '.json': continue
             if p.suffix.lower() not in ['.epub', '.txt', '.srt', '.md', '.docx']: continue
             
@@ -1047,7 +1047,7 @@ class MainWindow(QMainWindow):
 
     def _is_supported_source(self, p: Path) -> bool:
         suffix_ok = p.suffix.lower() in {".epub",".txt",".srt", ".docx"}
-        reject = ("_bili" in p.stem.lower()) or ("_bilingual" in p.stem.lower()) or (".temp" in p.name.lower()) or p.name.lower().endswith(".log")
+        reject = ("_bili" in p.stem.lower()) or (".temp" in p.name.lower()) or p.name.lower().endswith(".log")
         if not suffix_ok:
             # Special hint for .doc
             if p.suffix.lower() == ".doc":
@@ -1056,7 +1056,7 @@ class MainWindow(QMainWindow):
                 QMessageBox.critical(self, "不支援的檔案", f"只支援：.epub, .txt, .srt, .docx\n{p}")
             return False
         if reject:
-            QMessageBox.critical(self, "無效的輸入", "這看起來是輸出檔或暫存檔（*_bili.*, *_bilingual.*, *.temp*, *.log*），請不要丟入。"); return False
+            QMessageBox.critical(self, "無效的輸入", "這看起來是輸出檔或暫存檔（*_bili.*, *.temp*, *.log*），請不要丟入。"); return False
         return True
 
     def dragEnterEvent(self, e):
@@ -1151,8 +1151,7 @@ class MainWindow(QMainWindow):
         
         if "_bili" in origin_name.lower():
             origin_name = origin_name.lower().replace("_bili","")
-        elif "_bilingual" in origin_name.lower():
-            origin_name = origin_name.lower().replace("_bilingual","")
+
 
         # Use relative path for book name, assuming CWD is set correctly
         book_rel_path = f"books/{origin_name}"
@@ -1348,70 +1347,35 @@ class MainWindow(QMainWindow):
 
         # 1. Delete source in backend/books
         src_path = self.backend_books / origin_name
+        errors = []
+        
         try:
             if src_path.exists(): src_path.unlink()
-            self.append_log(f"已刪除來源檔: {src_path.name}")
         except Exception as e:
-            self.append_log(f"刪除來源檔失敗 {src_path.name}: {e}")
+            errors.append(f"無法刪除來源檔: {e}")
             
-        # 2. Delete output files (e.g. *_bili.epub, *_bilingual.epub)
+        # 2. Delete output files (e.g. *_bili.epub)
         stem = Path(origin_name).stem
-        for p in self.backend_books.glob(f"{stem}_bili.*"):
-            try: 
-                p.unlink()
-                self.append_log(f"已刪除輸出檔: {p.name}")
-            except Exception as e: 
-                self.append_log(f"刪除輸出檔失敗 {p.name}: {e}")
-        
-        for p in self.backend_books.glob(f"{stem}_bilingual.*"):
-            try: 
-                p.unlink()
-                self.append_log(f"已刪除輸出檔: {p.name}")
-            except Exception as e: 
-                self.append_log(f"刪除輸出檔失敗 {p.name}: {e}")
+        files_to_delete = []
+        files_to_delete.extend(self.backend_books.glob(f"{stem}_bili.*"))
+        files_to_delete.extend(self.backend_books.glob(f"{stem}_bili_temp.*"))
+        files_to_delete.extend(self.backend_books.glob(f"{stem}_temp.*"))
+        files_to_delete.append(self.backend_books / f"{stem}_nouns.json")
+        files_to_delete.append(self.backend_books / f".{stem}.temp.bin")
 
-        # 3. Delete temporary files (e.g. *_bili_temp.epub, *_bilingual_temp.epub, *_temp.*)
-        for p in self.backend_books.glob(f"{stem}_bili_temp.*"):
-            try: 
-                p.unlink()
-                self.append_log(f"已刪除暫存檔: {p.name}")
-            except Exception as e: 
-                self.append_log(f"刪除暫存檔失敗 {p.name}: {e}")
-
-        for p in self.backend_books.glob(f"{stem}_bilingual_temp.*"):
-            try: 
-                p.unlink()
-                self.append_log(f"已刪除暫存檔: {p.name}")
-            except Exception as e: 
-                self.append_log(f"刪除暫存檔失敗 {p.name}: {e}")
-        
-        for p in self.backend_books.glob(f"{stem}_temp.*"):
-            try: 
-                p.unlink()
-                self.append_log(f"已刪除暫存檔: {p.name}")
-            except Exception as e: 
-                self.append_log(f"刪除暫存檔失敗 {p.name}: {e}")
-
-        # 4. Delete Glossary file
-        try:
-            glossary_file = self.backend_books / f"{stem}_nouns.json"
-            if glossary_file.exists():
-                glossary_file.unlink()
-                self.append_log(f"已刪除 Glossary 檔: {glossary_file.name}")
-        except Exception as e:
-            self.append_log(f"刪除 Glossary 檔失敗 {glossary_file.name}: {e}")
-
-        # 5. Delete progress file
-        try:
-            progress_file = self.backend_books / f".{stem}.temp.bin"
-            if progress_file.exists():
-                progress_file.unlink()
-                self.append_log(f"已刪除進度檔: {progress_file.name}")
-        except Exception as e:
-            self.append_log(f"刪除進度檔失敗 {progress_file.name}: {e}")
+        for p in files_to_delete:
+            if p.exists():
+                try:
+                    p.unlink()
+                except Exception as e:
+                    errors.append(f"無法刪除 {p.name}: {e}")
         
         self.task_list.takeItem(row) # This removes it from list
-        self.append_log(f"--- 刪除完成: {origin_name} ---")
+        
+        if errors:
+            self.append_log(f"刪除失敗: {origin_name} (細節: {'; '.join(errors)})")
+        else:
+            self.append_log(f"刪除完成: {origin_name}")
         
         # Show empty state if no items left
         if self.task_list.count() == 0:
@@ -1431,17 +1395,15 @@ class MainWindow(QMainWindow):
         
         status = "失敗"
         
-        if "已停止" in msg or "已強制停止" in msg or "已暫停" in msg:
+        if "已暫停" in msg:
             status = "暫停"
-            msg += "\n[提示] 您可以再次選取此項目並點擊「執行」，選擇「是」來恢復翻譯 (Resume)。"
             card.update_status(status, 0, self._fmt_sec(elapsed), "00:00")
             self.should_continue_queue = False
         elif rc == 0:
             if global_state.is_cancelled:
                 status = "暫停"
-                msg = "已暫停 (Graceful Stop)"
+                msg = "已暫停"
                 card.update_status(status, 0, self._fmt_sec(elapsed), "00:00")
-                # Force repaint to ensure status is updated immediately
                 card.repaint()
                 QApplication.processEvents()
                 self.should_continue_queue = False
@@ -1547,8 +1509,6 @@ class MainWindow(QMainWindow):
     def _find_latest_output(self, books_dir: Path, stem: str) -> Optional[Path]:
         # Prefer _bili.* over _bilingual.*
         cands = [p for p in books_dir.glob(f"{stem}_bili.*") if p.is_file()]
-        if not cands:
-             cands = [p for p in books_dir.glob(f"{stem}_bilingual.*") if p.is_file()]
         
         if not cands: return None
         cands.sort(key=lambda p: p.stat().st_mtime, reverse=True); return cands[0]
