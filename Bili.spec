@@ -5,7 +5,7 @@ a = Analysis(
     ['gui.py'],
     pathex=[],
     binaries=[],
-    datas=[('icons', 'icons'), ('gui/styles', 'gui/styles'), ('prompt_學術.json', '.'), ('prompt_繁中.json', '.'), ('prompt_通用.json', '.')],
+    datas=[('icons', 'icons'), ('gui/styles/dark_theme.qss', 'gui/styles')],
     hiddenimports=[],
     hookspath=[],
     hooksconfig={},
@@ -31,10 +31,10 @@ exe = EXE(
     console=False,
     disable_windowed_traceback=False,
     argv_emulation=False,
-    target_arch=None,
+    target_arch='arm64',
     codesign_identity=None,
     entitlements_file=None,
-    icon=['/Users/ideo2004/Bili/icons/logo.icns'],
+    icon=['icons/logo.icns'],
 )
 coll = COLLECT(
     exe,
@@ -48,6 +48,6 @@ coll = COLLECT(
 app = BUNDLE(
     coll,
     name='Bili.app',
-    icon='/Users/ideo2004/Bili/icons/logo.icns',
+    icon='icons/logo.icns',
     bundle_identifier=None,
 )

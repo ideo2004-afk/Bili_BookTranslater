@@ -811,7 +811,7 @@ class MainWindow(QMainWindow):
                     "google_api_key": "", "openai_api_key": "",
                     "use_accumulated":True, "accumulated_num":600,
                     "resume":False, "bilingual":True, "output_dir":str(Path.home()/ "Desktop"),
-                    "selected_model_display": "gemini-2.5-pro"}
+                    "selected_model_display": "gemini-2.0-flash"}
         self.cfg = load_config(defaults)
 
         self.setWindowTitle("Bili 原文書翻譯")
@@ -974,7 +974,7 @@ class MainWindow(QMainWindow):
         self.status_label.setObjectName("StatusLabel")
         self.status_bar.addWidget(self.status_label, 1) # Stretch factor 1 to center
         
-        version_label = QLabel("by @Lee 2025 v1.2.2")
+        version_label = QLabel("by @Lee 2025 v1.2.5")
         version_label.setObjectName("VersionLabel")
         self.status_bar.addPermanentWidget(version_label)
 
