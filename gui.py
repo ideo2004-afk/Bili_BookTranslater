@@ -469,7 +469,7 @@ class SettingsWidget(QWidget):
                 accumulated_num = 2000
             else:
                 # Default for unknown models
-                accumulated_num = 2000
+                accumulated_num = 1000
 
         self.cfg.update({
             "model": model_type,
@@ -649,13 +649,13 @@ class TaskCard(QWidget):
     def update_status(self, status, progress=0, duration="00:00", remaining="00:00"):
         self.lbl_status.setText(status)
         if status == "執行中…":
-            self.lbl_status.setStyleSheet("background-color: #1e3a8a; color: #93c5fd; padding: 4px 8px; border-radius: 4px; font-size: 11px;")
+            self.lbl_status.setStyleSheet("background-color: #2563eb; color: #eeeeee; padding: 4px 8px; border-radius: 4px; font-size: 11px;")
         elif status == "完成":
-            self.lbl_status.setStyleSheet("background-color: #14532d; color: #86efac; padding: 4px 8px; border-radius: 4px; font-size: 11px;")
+            self.lbl_status.setStyleSheet("background-color: #2563eb; color: #eeeeee; padding: 4px 8px; border-radius: 4px; font-size: 11px;")
         elif "失敗" in status or "停止" in status or "暫停" in status:
-            self.lbl_status.setStyleSheet("background-color: #7f1d1d; color: #fca5a5; padding: 4px 8px; border-radius: 4px; font-size: 11px;")
+            self.lbl_status.setStyleSheet("background-color: #7f1d1d; color: #eeeeee; padding: 4px 8px; border-radius: 4px; font-size: 11px;")
         else:
-            self.lbl_status.setStyleSheet("background-color: #27272a; color: #a1a1aa; padding: 4px 8px; border-radius: 4px; font-size: 11px;")
+            self.lbl_status.setStyleSheet("background-color: #2563eb; color: #eeeeee; padding: 4px 8px; border-radius: 4px; font-size: 11px;")
             
         self.pbar.setValue(progress)
         self.lbl_duration.setText(duration)
