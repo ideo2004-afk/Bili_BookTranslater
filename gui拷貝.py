@@ -1301,19 +1301,6 @@ class MainWindow(QMainWindow):
         if global_state.is_cancelled:
             return
 
-        # Prevent progress update from overwriting "Completed" or "Failed" status
-        # This fixes the bug where late logs reset the status to "Running"
-        try:
-            item = self.task_list.item(row)
-            if item:
-                card = self.task_list.itemWidget(item)
-                if card:
-                    status_text = card.lbl_status.text()
-                    if "完成" in status_text or "失敗" in status_text or "暫停" in status_text:
-                        return
-        except Exception:
-            pass
-
         ansi_escape = re.compile(r'\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])')
         clean_line = ansi_escape.sub('', line)
 
@@ -1407,15 +1394,22 @@ class MainWindow(QMainWindow):
         
         status = "失敗"
         
-        # High priority check for cancellation
-        if global_state.is_cancelled or "已暫停" in msg:
+        if "已暫停" in msg:
             status = "暫停"
             card.update_status(status, 0, self._fmt_sec(elapsed), "00:00")
             self.should_continue_queue = False
         elif rc == 0:
-            status = "完成"
-            card.update_status(status, 100, self._fmt_sec(elapsed), "00:00")
-            self.should_continue_queue = True
+            if global_state.is_cancelled:
+                status = "暫停"
+                msg = "已暫停"
+                card.update_status(status, 0, self._fmt_sec(elapsed), "00:00")
+                card.repaint()
+                QApplication.processEvents()
+                self.should_continue_queue = False
+            else:
+                status = "完成"
+                card.update_status(status, 100, self._fmt_sec(elapsed), "00:00")
+                self.should_continue_queue = True
         else:
             status = "失敗"
             card.update_status(status, 0, self._fmt_sec(elapsed), "00:00")
