@@ -1,125 +1,125 @@
-# Bili (AI 雙語電子書製作工具) v1.2.5
+# Bili (AI Bilingual E-book Tool) v1.2.5
 
-這是一個利用 AI (ChatGPT, Gemini, Ollama 等) 來協助翻譯 EPUB/TXT/SRT 電子書與字幕的工具。專為製作高品質的雙語電子書而設計，特別針對繁體中文環境台灣慣用語進行了優化。
+This is a tool that utilizes AI (ChatGPT, Gemini, Ollama, etc.) to assist in translating EPUB/TXT/SRT e-books and subtitles. Designed for creating high-quality bilingual e-books, specifically optimized for Traditional Chinese (Taiwan) usage.
 
 ---
 
-## ✨ 主要功能
+## ✨ Key Features
 
-1. **多語雙向翻譯**：支援英文、日文、韓文、法文、西班牙文、德文、義大利文，翻譯到繁體中文，也支援任何語言原文書的反向翻譯（例如繁體中文翻譯成日文）。
-2. **支援格式**：完整支援 EPUB / TXT / SRT / Word (.docx) / Markdown (.md) 格式檔案全文翻譯，大小不受任何限制。最適合翻譯大部頭電子書或完整論文。
-3. **圖形化介面 (GUI)**：提供直覺的操作介面，支援拖放檔案、進度條顯示與即時日誌。使用者可直接拖放檔案到程式視窗，即可開始翻譯。
-4. **雙語對照 (Bilingual)**：可選擇輸出為雙語對照格式，適合語言學習；亦可製作純翻譯版本。
-5. **多模型支援**：
-    *   **雲端模型**：支援 Google Gemini (Flash/Pro) 與 OpenAI (GPT-4o/mini)。
-    *   **本地模型**：支援 Ollama (Llama 3, Qwen 3, Qwen 2.5, Gemma 3 等)，完全隱私且免費。
-6. **排程處理 (Batch)**：可自動排程，一次處理多本書籍，大幅提高效率。
-7. **智慧術語表 (Glossary)**：程式會自動提取並維護書中的人名、地名等專有名詞，確保整本書的翻譯一致性。
-8. **斷點續傳 (Resume)**：翻譯到一半出錯或想暫停？隨時可以從中斷點繼續，不會浪費已翻譯的進度與 Token。
-9. **並行處理**：支援多執行緒並行翻譯，大幅提升速度。
+1. **Multi-language Bidirectional Translation**: Supports translation to Traditional Chinese from English, Japanese, Korean, French, Spanish, German, and Italian. Also supports reverse translation from any source language (e.g., Traditional Chinese to Japanese).
+2. **Supported Formats**: Full support for EPUB / TXT / SRT / Word (.docx) / Markdown (.md) full-text translation, with no file size limits. Perfect for translating large e-books or complete academic papers.
+3. **Graphical User Interface (GUI)**: Intuitive interface supporting drag-and-drop, progress bars, and real-time logs. Simply drag files into the window to start translating.
+4. **Bilingual Support**: Option to output in bilingual format (great for language learning) or pure translation.
+5. **Multi-Model Support**:
+    *   **Cloud Models**: Supports Google Gemini (Flash/Pro) and OpenAI (GPT-4o/mini).
+    *   **Local Models**: Supports Ollama (Llama 3, Qwen 3, Qwen 2.5, Gemma 3, etc.), ensuring complete privacy and free usage.
+6.  **Batch Processing**: Automatically schedules and processes multiple books for maximum efficiency.
+7.  **Smart Glossary**: Automatically extracts and maintains proper nouns (names, places) to ensure consistency throughout the book.
+8.  **Resume Capability**: Encountered an error or want to pause? You can resume from the interruption point at any time without wasting previous progress or tokens.
+9.  **Parallel Processing**: Supports multi-threaded parallel translation for significantly faster speeds.
 
 gui/assets/screenshot01.png
 
 gui/assets/screenshot02.png
 
-<img width="929" height="525" alt="截圖 2025-12-08 下午5 59 33" src="https://github.com/user-attachments/assets/9009fae9-375b-4406-a762-c70ae1824abf" />
+<img width="929" height="525" alt="Screenshot 1" src="https://github.com/user-attachments/assets/9009fae9-375b-4406-a762-c70ae1824abf" />
 
-<img width="931" height="681" alt="截圖 2025-12-08 下午5 59 49" src="https://github.com/user-attachments/assets/a927b0b6-504d-47f6-b32e-6df3ac1b61ac" />
+<img width="931" height="681" alt="Screenshot 2" src="https://github.com/user-attachments/assets/a927b0b6-504d-47f6-b32e-6df3ac1b61ac" />
 
-
----
-
-## 📢 最新版本 (Release v1.2.2)
-
-目前已釋出 **v1.2.2** 版本，提供包含 macOS 環境的 GUI 介面應用程式 (`.dmg`)，請至 [Releases](https://github.com/ideo2004-afk/Bili_BookTranslater/releases) 頁面下載使用。
-
-*(初次執行若遇安全性阻擋，請至「系統設定」>「隱私權與安全性」> 選擇「仍要打開」)*
 
 ---
 
-## 🚀 快速開始 (一鍵安裝與執行)
+## 📢 Latest Release (v1.2.2)
 
-我們提供了自動化腳本，讓您無需懂程式碼也能輕鬆使用。
+**v1.2.2** is now available, including a GUI application for macOS (`.dmg`). Please download it from the [Releases](https://github.com/ideo2004-afk/Bili_BookTranslater/releases) page.
 
-### macOS 使用者 (推薦)
-
-1.  **安裝環境** (只需執行一次)：
-    *   雙擊 `install.command`。腳本會自動建立環境並安裝必要套件。
-2.  **啟動程式**：
-    *   雙擊 `run_gui.command` 即可開啟介面。
-
-### Windows 使用者
-
-1.  **安裝環境** (只需執行一次)：
-    *   雙擊 `install.bat`。
-2.  **啟動程式**：
-    *   雙擊 `run_gui.bat` 即可開啟介面。
+*(If blocked by security settings on first run, go to "System Settings" > "Privacy & Security" > Select "Open Anyway")*
 
 ---
 
-## 📖 使用教學
+## 🚀 Quick Start (One-Click Install & Run)
 
-1.  **設定 API Key**：
-    *   開啟程式後，點擊左側「設定」圖示。
-    *   選擇模型平台 (`gemini`, `chatgptapi`, `ollama`)。
-    *   填入 API Key (Ollama 留空即可)。
-2.  **選擇翻譯風格 (Prompt)**：
-    *   程式內建三種精心調教的 Prompt，請依需求選擇：
-        *   **繁體中文 (預設)**：`prompt_繁中` - 專為台灣繁體中文使用者設計，強調流暢度與在地化用詞。
-        *   **通用翻譯**：`prompt_通用` - 適用於翻譯成其他語言，風格較為中性平實。
-        *   **學術論文**：`prompt_學術` - 針對學術文件優化，保留專業術語的精確性，語氣正式。
-3.  **加入書籍與開始**：
-    *   將檔案 (`.epub`, `.txt`, `.srt`, `.docx`, `.md`) 拖入視窗，點擊「開始翻譯」。
+We provide automated scripts so you can use the tool easily without needing coding knowledge.
 
----
+### macOS Users (Recommended)
 
-## ⚙️ 關於進階參數
+1.  **Install Environment** (Run once):
+    *   Double-click `install.command`. The script will automatically set up the environment and install necessary packages.
+2.  **Start Application**:
+    *   Double-click `run_gui.command` to open the interface.
 
-為了確保翻譯品質與穩定性，部分參數由程式自動管理，不建議使用者手動調整：
+### Windows Users
 
-*   **Accumulated Num (批次處理量)**：
-    *   程式會自動根據所選模型調整每次傳送給 AI 的文字量，以達到最佳速度與品質平衡。
-*   **Request Interval (請求間隔)**：
-    *   程式固定設有安全間隔時間，防止因請求過快而導致 API 封鎖 (Rate Limit)，確保長時間翻譯任務的穩定性。
-*   **Context (上下文感知)**：
-    *   *註：由於實務上開啟上下文會導致大量 Token 消耗且容易引發模型幻覺，目前版本已預設關閉並移除此選項，以確保翻譯的準確度。*
+1.  **Install Environment** (Run once):
+    *   Double-click `install.bat`.
+2.  **Start Application**:
+    *   Double-click `run_gui.bat` to open the interface.
 
 ---
 
-## 🛠️ 常見問題 (FAQ)
+## 📖 Usage Guide
 
-**Q: 翻譯看不到進度？**
-A: 進度條會在翻譯幾個段落後，自動顯示。亦可點擊左側的「日誌」圖示，查看詳細的翻譯進度。尤其需檢查雲端模型是否有正確填入 API Key。
-
-**Q: 翻譯到一半程式當掉怎麼辦？**
-A: 直接重新啟動程式，再次點擊該書籍並按「開始翻譯」。程式會自動偵測並詢問是否從中斷點續傳 (Resume)，選擇「是」即可完美銜接。
-
-**Q: 為什麼本地 Ollama 翻譯比較慢？**
-A: 本地模型的速度完全取決於您的電腦顯卡 (GPU) 效能。若速度過慢，建議改用 Gemini Flash 等雲端模型，既便宜又快速。
-
-**Q: 翻譯出來的繁體中文怪怪的？**
-A: 請確認您在設定中選擇了 `prompt_繁中`，這會確保翻譯出的繁體中文風格更為自然，並使用台灣慣用語。此外，不同模型 (如 GPT-4 與 Llama 3) 的中文能力本身就有差異，建議嘗試更換模型。
-
----
-
-## ⚠️ 免責聲明
-
-本工具僅供個人學習與研究使用。請勿用於翻譯有版權爭議的書籍並進行散布。使用者需自行承擔使用本工具所產生的一切法律責任。
+1.  **Set API Key**:
+    *   Open the app and click the "Settings" icon on the left.
+    *   Select Model Platform (`gemini`, `chatgptapi`, `ollama`).
+    *   Enter API Key (Leave empty for Ollama).
+2.  **Select Translation Style (Prompt)**:
+    *   The program comes with three finely tuned prompts:
+        *   **Traditional Chinese (Default)**: `prompt_繁中` - Optimized for Taiwan Traditional Chinese users, emphasizing fluency and localized terminology.
+        *   **General**: `prompt_通用` - Suitable for translating to other languages, with a neutral style.
+        *   **Academic**: `prompt_學術` - Optimized for academic documents, preserving professional terminology with a formal tone.
+3.  **Add Books & Start**:
+    *   Drag files (`.epub`, `.txt`, `.srt`, `.docx`, `.md`) into the window and click "Start Translation".
 
 ---
 
-## 🔧 實用小工具 (進階)
+## ⚙️ Advanced Settings
 
-本專案附帶了一些實用的命令列工具，供進階使用者使用：
+To ensure translation quality and stability, some parameters are managed automatically and manual adjustment is not recommended:
 
-### 雙語轉單語工具 (`2single.py`)
-如果您已經製作了雙語對照的 EPUB 電子書，但想要一個「純中文」的乾淨閱讀版本，可以使用此腳本快速轉換。
+*   **Accumulated Num**:
+    *   Automatically adjusts the amount of text sent to AI based on the selected model for the best balance of speed and quality.
+*   **Request Interval**:
+    *   Fixed safety intervals to prevent API blocking (Rate Limit), ensuring stability for long translation tasks.
+*   **Context**:
+    *   *Note: Enabling context often consumes massive amounts of tokens and induces hallucinations. This option is disabled and removed in the current version to ensure accuracy.*
 
-*   **功能**：自動辨識並移除雙語 EPUB 中的英文段落，只保留中文內容。
-*   **用法**：
-    1. 開啟終端機 (Terminal)。
-    2. 執行指令：
+---
+
+## 🛠️ FAQ
+
+**Q: I don't see any translation progress?**
+A: The progress bar will update after a few paragraphs are translated. You can also click the "Log" icon on the left to view detailed progress. Check if your API Key is correct, especially for cloud models.
+
+**Q: What if the program crashes halfway?**
+A: Restart the program, click the book again, and press "Start Translation". The program will detect previous progress and ask if you want to Resume. Select "Yes" to continue seamlessly.
+
+**Q: Why is local Ollama translation slow?**
+A: Local model speed depends entirely on your Computer's GPU performance. If it's too slow, consider using cloud models like Gemini Flash, which are cheap and fast.
+
+**Q: The translation quality seems off?**
+A: Ensure you selected `prompt_繁中` in settings for natural Traditional Chinese results. Also, different models (e.g., GPT-4 vs Llama 3) have varying capabilities. Try switching models.
+
+---
+
+## ⚠️ Disclaimer
+
+This tool is for personal study and research purposes only. Do not use it to translate and distribute copyrighted books. Users act at their own risk regarding any legal issues arising from the use of this tool.
+
+---
+
+## 🔧 Utility Tools (Advanced)
+
+This project includes practical command-line tools for advanced users:
+
+### Bilingual to Single Language Tool (`2single.py`)
+If you have a bilingual EPUB but want a clean "Chinese-only" version, use this script.
+
+*   **Function**: Automatically identifies and removes English paragraphs from bilingual EPUBs, keeping only Chinese content.
+*   **Usage**:
+    1. Open Terminal.
+    2. Run command:
        ```bash
-       python 2single.py "您的電子書.epub"
+       python 2single.py "Your_Book.epub"
        ```
-    3. 程式會自動產生一個檔名結尾為 `_Single.epub` 的純中文版本。
+    3. It will generate a pure Chinese version ending in `_Single.epub`.
