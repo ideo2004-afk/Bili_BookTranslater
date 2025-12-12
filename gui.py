@@ -178,7 +178,7 @@ class DirectWorker(QThread):
                 code = e.code if isinstance(e.code, int) else 1
                 if code == 0:
                     self.done.emit(0, "完成 ✅")
-                if self._user_cancelled:
+                elif self._user_cancelled:
                     self.done.emit(1, "已暫停")
                 else:
                     self.done.emit(code, f"失敗 (Exit Code: {code})")
@@ -1235,6 +1235,10 @@ class MainWindow(QMainWindow):
 
     def run_next(self, resume: bool):
         if self.current_worker or not self.queue: return
+        
+        # Default: We want to continue unless stopped explicitly
+        self.should_continue_queue = True
+        
         r = self.queue.pop(0); self.current_row = r
         
         item = self.task_list.item(r)
@@ -1415,11 +1419,13 @@ class MainWindow(QMainWindow):
         elif rc == 0:
             status = "完成"
             card.update_status(status, 100, self._fmt_sec(elapsed), "00:00")
-            self.should_continue_queue = True
+            # Default to continue, logic in run_next ensures it starts true
+            # self.should_continue_queue = True 
         else:
             status = "失敗"
             card.update_status(status, 0, self._fmt_sec(elapsed), "00:00")
-            self.should_continue_queue = True # Continue even if failed? Usually yes for batch processing
+            # self.should_continue_queue = True 
+
             
         self.append_log(msg)
 
