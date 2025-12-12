@@ -410,7 +410,7 @@ class SettingsWidget(QWidget):
         self.temp.setValue(float(self.cfg.get("temperature", 0.5)))
         
         # Prompt
-        current_prompt = self.cfg.get("prompt", "prompt_tw.json")
+        current_prompt = self.cfg.get("prompt", "prompt_繁中.json")
         idx = self.prompt.findText(current_prompt)
         if idx >= 0: self.prompt.setCurrentIndex(idx)
         else: self.prompt.setEditText(current_prompt)
@@ -482,7 +482,7 @@ class SettingsWidget(QWidget):
             "prompt": self.prompt.currentText().strip(),
             "use_accumulated": True,
             "accumulated_num": accumulated_num,
-            "interval": 2.0,
+            "interval": 5.0,
             # "resume": self.chk_resume.isChecked(), # Removed from UI
             "use_context": use_context,
             "use_glossary": use_glossary,

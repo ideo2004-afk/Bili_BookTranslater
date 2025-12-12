@@ -5,7 +5,7 @@ a = Analysis(
     ['gui.py'],
     pathex=[],
     binaries=[],
-    datas=[('icons', 'icons'), ('gui/styles/dark_theme.qss', 'gui/styles')],
+    datas=[('icons', 'icons'), ('gui/styles/dark_theme.qss', 'gui/styles'), ('prompt_*.json', '.')],
     hiddenimports=[],
     hookspath=[],
     hooksconfig={},
