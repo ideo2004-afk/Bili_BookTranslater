@@ -177,11 +177,11 @@ class DirectWorker(QThread):
             except SystemExit as e:
                 code = e.code if isinstance(e.code, int) else 1
                 if code == 0:
-                    self.done.emit(0, "完成 ✅")
+                    self.done.emit(0, "完成 (v1.2.6) ✅")
                 elif self._user_cancelled:
                     self.done.emit(1, "已暫停")
                 else:
-                    self.done.emit(code, f"失敗 (Exit Code: {code})")
+                    self.done.emit(code, f"失敗 (Code: {code})")
             except KeyboardInterrupt:
                 if self._user_cancelled:
                     self.done.emit(1, "已暫停")
@@ -303,12 +303,9 @@ class SettingsWidget(QWidget):
 
         self.temp = QDoubleSpinBox(); self.temp.setRange(0.0, 2.0); self.temp.setDecimals(2); self.temp.setSingleStep(0.1)
         # self.temp.setValue(float(self.cfg.get("temperature", 0.5)))
+        
+        # self.prompt = QComboBox() # Removed
 
-        self.prompt = QComboBox(); self.prompt.setEditable(False)
-        _fix_combo_popup(self.prompt)
-        prompt_files = sorted([f.name for f in APP_DIR.glob("prompt*.json")])
-        if not prompt_files: prompt_files = ["prompt.json"]
-        self.prompt.addItems(prompt_files)
         # Default prompt handled in load_settings
             
         self.google_key = QLineEdit(self.cfg.get("google_api_key", ""))
@@ -324,7 +321,7 @@ class SettingsWidget(QWidget):
         form_model.addRow("OpenAI API Key:", self.openai_key)
         form_model.addRow("目標語言:", self.lang)
         form_model.addRow("模型溫度:", self.temp)
-        form_model.addRow("提示詞:", self.prompt)
+        # form_model.addRow("提示詞:", self.prompt) # Removed for auto-selection
         
         self.layout.addWidget(grp_model)
 
@@ -409,11 +406,11 @@ class SettingsWidget(QWidget):
         # Temp
         self.temp.setValue(float(self.cfg.get("temperature", 0.5)))
         
-        # Prompt
-        current_prompt = self.cfg.get("prompt", "prompt_繁中.json")
-        idx = self.prompt.findText(current_prompt)
-        if idx >= 0: self.prompt.setCurrentIndex(idx)
-        else: self.prompt.setEditText(current_prompt)
+        # Prompt selection is now automatic based on language
+        # current_prompt = self.cfg.get("prompt", "prompt_繁中.json")
+        # idx = self.prompt.findText(current_prompt)
+        # if idx >= 0: self.prompt.setCurrentIndex(idx)
+        # else: self.prompt.setEditText(current_prompt)
         
         # Context - REMOVED
         # Default to False if not set
@@ -459,14 +456,14 @@ class SettingsWidget(QWidget):
         else:
             # Smart Batch Sizing (Cloud)
             # Logic: Reasoning models (Gemini 2.5/3) need smaller chunks (1000) to allow space for "Thinking"
-            # Standard models (Gemini 1.5, GPT-4) can handle larger chunks (2500) for speed.
+            # Standard models (Gemini 2.0, GPT-4) can handle larger chunks (2000) for speed.
             m_low = selected_model.lower()
-            if "gemini-2.5" in m_low or "gemini-3" in m_low or "o1-" in m_low:
+            if "flash" in m_low or "gpt" in m_low:
+                 # Standard Speed Models -> Speed Mode
+                accumulated_num = 2000
+            elif "gemini-2.5" in m_low or "gemini-3" in m_low or "o1-" in m_low:
                 # Reasoning Models (High thinking cost) -> Safe Mode
                 accumulated_num = 1000
-            elif "gpt" in m_low or "gemini-1.5" in m_low:
-                # Standard Models (No thinking cost) -> Speed Mode
-                accumulated_num = 2000
             else:
                 # Default for unknown models
                 accumulated_num = 1000
@@ -479,7 +476,8 @@ class SettingsWidget(QWidget):
             "openai_api_key": self.openai_key.text().strip(),
             "language": self.lang_map.get(selected_display, "zh-hant"),
             "temperature": float(self.temp.value()),
-            "prompt": self.prompt.currentText().strip(),
+            # Auto-select prompt based on language
+            "prompt": "prompt_tw.json" if selected_display == "繁體中文" else "prompt_general.json",
             "use_accumulated": True,
             "accumulated_num": accumulated_num,
             "interval": 5.0,
@@ -814,7 +812,7 @@ class MainWindow(QMainWindow):
                     "selected_model_display": "gemini-2.0-flash"}
         self.cfg = load_config(defaults)
 
-        self.setWindowTitle("Bili 原文書翻譯")
+        self.setWindowTitle("Bili 原文書翻譯 v1.2.7")
         self.resize(900, 700)
         self.setAcceptDrops(True)
         self.setUnifiedTitleAndToolBarOnMac(True)
@@ -1238,6 +1236,7 @@ class MainWindow(QMainWindow):
         
         # Default: We want to continue unless stopped explicitly
         self.should_continue_queue = True
+        self.append_log(f"[Scheduler] Starting next task. Queue remaining: {len(self.queue)-1}")
         
         r = self.queue.pop(0); self.current_row = r
         
@@ -1417,10 +1416,10 @@ class MainWindow(QMainWindow):
             card.update_status(status, 0, self._fmt_sec(elapsed), "00:00")
             self.should_continue_queue = False
         elif rc == 0:
-            status = "完成"
+            status = "完成 (v1.2.7)" # Keep UI clean
             card.update_status(status, 100, self._fmt_sec(elapsed), "00:00")
-            # Default to continue, logic in run_next ensures it starts true
-            # self.should_continue_queue = True 
+            # Ensure we continue
+            self.should_continue_queue = True
         else:
             status = "失敗"
             card.update_status(status, 0, self._fmt_sec(elapsed), "00:00")
@@ -1468,15 +1467,17 @@ class MainWindow(QMainWindow):
                 self.append_log(f"[搬移輸出] 再次失敗 (桌面): {e2}")
 
     def on_worker_finished(self, row: int, resume: bool):
+        self.append_log(f"[Scheduler] Worker finished for row {row}. Checking queue...")
         # Now it is safe to cleanup the worker
         self.current_worker = None
         self.current_row = None
         self.status_label.setText("就緒")
         
         if self.should_continue_queue:
+            self.append_log("[Scheduler] Queue active, running next...")
             self.run_next(resume=resume)
         else:
-            # Queue stopped
+            self.append_log("[Scheduler] Queue stopped (should_continue_queue=False).")
             pass
 
     def stop_current(self):
