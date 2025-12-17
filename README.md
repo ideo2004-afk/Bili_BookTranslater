@@ -1,4 +1,4 @@
-# Bili (AI Bilingual E-book Tool) v1.2.5
+# Bili (AI Bilingual E-book Tool) v1.2.7
 
 This is a tool that utilizes AI (ChatGPT, Gemini, Ollama, etc.) to assist in translating EPUB/TXT/SRT e-books and subtitles. Designed for creating high-quality bilingual e-books, specifically optimized for Traditional Chinese (Taiwan) usage.
 
@@ -123,3 +123,14 @@ If you have a bilingual EPUB but want a clean "Chinese-only" version, use this s
        python 2single.py "Your_Book.epub"
        ```
     3. It will generate a pure Chinese version ending in `_Single.epub`.
+
+## Support
+
+If you find this plugin useful and would like to support its development, please consider buying me a coffee:
+
+<a href="https://buymeacoffee.com/ideo2004c" target="_blank"><img src="https://cdn.buymeacoffee.com/buttons/v2/default-yellow.png" alt="Buy Me A Coffee" style="height: 60px !important;width: 217px !important;" ></a>
+
+## License
+
+MIT
+
