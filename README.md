@@ -29,9 +29,9 @@ gui/assets/screenshot02.png
 
 ---
 
-## 📢 Latest Release (v1.2.2)
+## 📢 Latest Release (v1.2.7)
 
-**v1.2.2** is now available, including a GUI application for macOS (`.dmg`). Please download it from the [Releases](https://github.com/ideo2004-afk/Bili_BookTranslater/releases) page.
+**v1.2.7** is now available, including a GUI application for macOS (`.dmg`). Please download it from the [Releases](https://github.com/ideo2004-afk/Bili_BookTranslater/releases) page.
 
 *(If blocked by security settings on first run, go to "System Settings" > "Privacy & Security" > Select "Open Anyway")*
 
@@ -63,12 +63,7 @@ We provide automated scripts so you can use the tool easily without needing codi
     *   Open the app and click the "Settings" icon on the left.
     *   Select Model Platform (`gemini`, `chatgptapi`, `ollama`).
     *   Enter API Key (Leave empty for Ollama).
-2.  **Select Translation Style (Prompt)**:
-    *   The program comes with three finely tuned prompts:
-        *   **Traditional Chinese (Default)**: `prompt_繁中` - Optimized for Taiwan Traditional Chinese users, emphasizing fluency and localized terminology.
-        *   **General**: `prompt_通用` - Suitable for translating to other languages, with a neutral style.
-        *   **Academic**: `prompt_學術` - Optimized for academic documents, preserving professional terminology with a formal tone.
-3.  **Add Books & Start**:
+2.  **Add Books & Start**:
     *   Drag files (`.epub`, `.txt`, `.srt`, `.docx`, `.md`) into the window and click "Start Translation".
 
 ---
@@ -81,8 +76,6 @@ To ensure translation quality and stability, some parameters are managed automat
     *   Automatically adjusts the amount of text sent to AI based on the selected model for the best balance of speed and quality.
 *   **Request Interval**:
     *   Fixed safety intervals to prevent API blocking (Rate Limit), ensuring stability for long translation tasks.
-*   **Context**:
-    *   *Note: Enabling context often consumes massive amounts of tokens and induces hallucinations. This option is disabled and removed in the current version to ensure accuracy.*
 
 ---
 
