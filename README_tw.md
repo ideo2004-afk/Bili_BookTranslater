@@ -29,9 +29,9 @@ gui/assets/screenshot02.png
 
 ---
 
-## 📢 最新版本 (Release v1.2.2)
+## 📢 最新版本 (Release v1.2.7)
 
-目前已釋出 **v1.2.2** 版本，提供包含 macOS 環境的 GUI 介面應用程式 (`.dmg`)，請至 [Releases](https://github.com/ideo2004-afk/Bili_BookTranslater/releases) 頁面下載使用。
+目前已釋出 **v1.2.7** 版本，提供包含 macOS 環境的 GUI 介面應用程式 (`.dmg`)，請至 [Releases](https://github.com/ideo2004-afk/Bili_BookTranslater/releases) 頁面下載使用。
 
 *(初次執行若遇安全性阻擋，請至「系統設定」>「隱私權與安全性」> 選擇「仍要打開」)*
 
@@ -63,12 +63,7 @@ gui/assets/screenshot02.png
     *   開啟程式後，點擊左側「設定」圖示。
     *   選擇模型平台 (`gemini`, `chatgptapi`, `ollama`)。
     *   填入 API Key (Ollama 留空即可)。
-2.  **選擇翻譯風格 (Prompt)**：
-    *   程式內建三種精心調教的 Prompt，請依需求選擇：
-        *   **繁體中文 (預設)**：`prompt_繁中` - 專為台灣繁體中文使用者設計，強調流暢度與在地化用詞。
-        *   **通用翻譯**：`prompt_通用` - 適用於翻譯成其他語言，風格較為中性平實。
-        *   **學術論文**：`prompt_學術` - 針對學術文件優化，保留專業術語的精確性，語氣正式。
-3.  **加入書籍與開始**：
+2.  **加入書籍與開始**：
     *   將檔案 (`.epub`, `.txt`, `.srt`, `.docx`, `.md`) 拖入視窗，點擊「開始翻譯」。
 
 ---
@@ -81,8 +76,6 @@ gui/assets/screenshot02.png
     *   程式會自動根據所選模型調整每次傳送給 AI 的文字量，以達到最佳速度與品質平衡。
 *   **Request Interval (請求間隔)**：
     *   程式固定設有安全間隔時間，防止因請求過快而導致 API 封鎖 (Rate Limit)，確保長時間翻譯任務的穩定性。
-*   **Context (上下文感知)**：
-    *   *註：由於實務上開啟上下文會導致大量 Token 消耗且容易引發模型幻覺，目前版本已預設關閉並移除此選項，以確保翻譯的準確度。*
 
 ---
 
