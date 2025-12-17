@@ -123,3 +123,15 @@ A: 請確認您在設定中選擇了 `prompt_繁中`，這會確保翻譯出的�
        python 2single.py "您的電子書.epub"
        ```
     3. 程式會自動產生一個檔名結尾為 `_Single.epub` 的純中文版本。
+
+
+## Support
+
+If you find this plugin useful and would like to support its development, please consider buying me a coffee:
+
+<a href="https://buymeacoffee.com/ideo2004c" target="_blank"><img src="https://cdn.buymeacoffee.com/buttons/v2/default-yellow.png" alt="Buy Me A Coffee" style="height: 60px !important;width: 217px !important;" ></a>
+
+## License
+
+MIT
+
