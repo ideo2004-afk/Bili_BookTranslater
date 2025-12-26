@@ -274,18 +274,19 @@ class Gemini(Base):
         translated_text = self.translate(combined_text)
         
         # Split the translated text back into a list
-        # We try to split by the separator first
         if not translated_text:
-            return []
+            return text_list # Fallback to original
             
         translated_list = translated_text.split(sep)
         
         # Handle cases where the number of items doesn't match
         if len(translated_list) != len(text_list):
-            print(f"Warning: Translated list length ({len(translated_list)}) does not match input list length ({len(text_list)}). Fallback to line splitting or padding.")
-            # Fallback: try splitting by newlines if the count is way off, or just return what we have
-            # In a robust system, we might want to re-translate item by item here, but for now we return what we got.
-            # If the model merged lines, we might have fewer items.
+            print(f"Warning: Translated list length ({len(translated_list)}) does not match input list length ({len(text_list)}). Padding or clipping...")
+            if len(translated_list) < len(text_list):
+                # Pad with original text
+                translated_list.extend(text_list[len(translated_list):])
+            else:
+                translated_list = translated_list[:len(text_list)]
             
         return translated_list
 

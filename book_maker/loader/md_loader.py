@@ -95,7 +95,7 @@ class MarkdownBookLoader(BaseBookLoader, AccumulationMixin):
 
     @staticmethod
     def _is_special_text(text):
-        return text.isdigit() or text.isspace() or len(text) == 0
+        return text.isdigit() or text.isspace() or len(text) == 0 or text.strip() == ""
 
     def _make_new_book(self, book):
         pass
@@ -126,10 +126,9 @@ class MarkdownBookLoader(BaseBookLoader, AccumulationMixin):
         p_to_save_len = len(self.p_to_save)
 
         try:
-            if self.accumulated_num > 1:
-                self.translate_paragraphs_acc(self.md_paragraphs, self.accumulated_num, index, p_to_save_len)
-            else:
-                self.translate_paragraphs_acc(self.md_paragraphs, self.accumulated_num, index, p_to_save_len)
+            # We use AccumulationMixin for everything now for consistency
+            p_list = [p for p in self.md_paragraphs if not self._is_special_text(p.text)]
+            self.translate_paragraphs_acc(p_list, self.accumulated_num, index, p_to_save_len)
 
             self.save_file(
                 f"{Path(self.md_name).parent}/{Path(self.md_name).stem}_bili.md",

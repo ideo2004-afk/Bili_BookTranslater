@@ -64,7 +64,7 @@ class DOCXBookLoader(BaseBookLoader, AccumulationMixin):
 
     @staticmethod
     def _is_special_text(text):
-        return text.strip() == "" or text.isdigit()
+        return text.strip() == "" or text.isdigit() or text.isspace()
 
     def _make_new_book(self, book):
         pass
@@ -78,8 +78,7 @@ class DOCXBookLoader(BaseBookLoader, AccumulationMixin):
         for paragraph in self.document.paragraphs:
             if self._is_special_text(paragraph.text):
                 continue
-            # Simple token estimation
-            total_tokens += len(paragraph.text) // 4
+            total_tokens += num_tokens_from_text(paragraph.text)
         
         print(f"Total estimated tokens: {total_tokens}")
 
@@ -88,39 +87,10 @@ class DOCXBookLoader(BaseBookLoader, AccumulationMixin):
         p_to_save_len = len(self.p_to_save)
 
         try:
-            
-            if self.accumulated_num > 1:
-                # Use accumulation logic
-                p_list = [p for p in self.document.paragraphs if not self._is_special_text(p.text)]
-                self.translate_paragraphs_acc(p_list, self.accumulated_num, index, p_to_save_len)
-            else:
-                # Original line-by-line logic
-                for paragraph in self.document.paragraphs:
-                    if global_state.is_cancelled:
-                        raise KeyboardInterrupt("Cancelled by user")
-
-                    if self._is_special_text(paragraph.text):
-                        continue
-
-                    if not self.resume or index // 1 >= p_to_save_len:
-                        try:
-                            temp = self.translate_model.translate(paragraph.text)
-                        except Exception as e:
-                            print(f"Error during translation: {e}")
-                            raise e
-
-                        self.p_to_save.append(temp)
-                    else:
-                        temp = self.p_to_save[index]
-
-                    self._update_paragraph(paragraph, temp)
-
-                    index += 1
-                    if index % 20 == 0:
-                        self._save_progress()
-
-                    if self.is_test and index > self.test_num:
-                        break
+            # We use AccumulationMixin logic for everything now
+            # This ensures resume and re-translation logic is consistent
+            p_list = [p for p in self.document.paragraphs if not self._is_special_text(p.text)]
+            self.translate_paragraphs_acc(p_list, self.accumulated_num, index, p_to_save_len)
 
             self.save_file(
                 f"{Path(self.docx_name).parent}/{Path(self.docx_name).stem}_bili.docx"

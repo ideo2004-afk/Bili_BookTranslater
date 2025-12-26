@@ -466,12 +466,20 @@ class ChatGPTAPI(Base):
                     translated_paragraphs = new_translated_paragraphs
 
         if len(translated_paragraphs) < plist_len:
-            translated_paragraphs.extend(
-                [""] * (plist_len - len(translated_paragraphs))
-            )
+            # Pad with original text
+            for i in range(len(translated_paragraphs), plist_len):
+                p = plist[i]
+                if isinstance(p, str):
+                    para_text = p.strip()
+                else:
+                    temp_p = copy(p)
+                    for sup in temp_p.find_all("sup"):
+                        sup.extract()
+                    para_text = temp_p.get_text().strip()
+                translated_paragraphs.append(para_text)
         elif len(translated_paragraphs) > plist_len:
             translated_paragraphs = translated_paragraphs[:plist_len]
-
+            
         return translated_paragraphs
 
     def extract_paragraphs(self, text, paragraph_count):

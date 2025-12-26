@@ -224,9 +224,18 @@ class EPUBBookLoader(BaseBookLoader):
         if global_state.is_cancelled:
             raise KeyboardInterrupt("Cancelled by user")
 
+        should_translate = True
         if self.resume and index < p_to_save_len:
-            p.string = self.p_to_save[index]
-        else:
+            saved_text = self.p_to_save[index]
+            # Smart Resume: If translation is identical to source, it might be a failed skip
+            if saved_text.strip() == new_p.text.strip() and not self._is_special_text(new_p.text):
+                print(f"Refining untranslated block at index {index}...")
+                should_translate = True
+            else:
+                p.string = saved_text
+                should_translate = False
+
+        if should_translate:
             t_text = ""
             if self.batch_flag:
                 self.translate_model.add_to_batch_translate_queue(index, new_p.text)
@@ -238,12 +247,17 @@ class EPUBBookLoader(BaseBookLoader):
                 raise RuntimeError(
                     "`t_text` is None: your translation model is not working as expected. Please check your translation model configuration."
                 )
+            
             if type(p) is NavigableString:
                 new_p = t_text
-                self.p_to_save.append(new_p)
             else:
                 new_p.string = t_text
-                self.p_to_save.append(new_p.text)
+                
+            # Update or append progress
+            if index < len(self.p_to_save):
+                self.p_to_save[index] = new_p if type(p) is NavigableString else new_p.text
+            else:
+                self.p_to_save.append(new_p if type(p) is NavigableString else new_p.text)
 
         self.helper.insert_trans(
             p, new_p.string, self.translation_style, self.single_translate
@@ -284,41 +298,61 @@ class EPUBBookLoader(BaseBookLoader):
     def _process_combined_paragraph(
         self, p_block, index, p_to_save_len, thread_safe=False
     ):
-        text = []
+        to_translate_info = [] # List of tuples: (paragraph_obj, source_index, source_text)
 
         for p in p_block:
+            should_translate = True
             if self.resume and index < p_to_save_len:
-                p.string = self.p_to_save[index]
-            else:
-                p_text = p.text.rstrip()
-                text.append(p_text)
+                saved_text = self.p_to_save[index]
+                # Smart Resume: If translation is identical to source, re-translate
+                if saved_text.strip() == p.text.strip() and not self._is_special_text(p.text):
+                    print(f"Refining untranslated block at index {index}...")
+                    should_translate = True
+                else:
+                    p.string = saved_text
+                    should_translate = False
+
+            if should_translate:
+                to_translate_info.append((p, index, p.text.rstrip()))
 
             if self.is_test and index >= self.test_num:
                 break
-
             index += 1
 
-        if len(text) > 0:
-            translated_text = self.translate_model.translate("\n".join(text))
-            translated_text = translated_text.split("\n")
-            text_len = len(translated_text)
+        if to_translate_info:
+            text_to_translate = [info[2] for info in to_translate_info]
+            translated_results = self.translate_model.translate("\n".join(text_to_translate))
+            translated_list = translated_results.split("\n")
+            
+            # Pad or clip to match input length
+            if len(translated_list) < len(to_translate_info):
+                translated_list.extend([info[2] for info in to_translate_info[len(translated_list):]])
+            elif len(translated_list) > len(to_translate_info):
+                translated_list = translated_list[:len(to_translate_info)]
 
-            for i in range(text_len):
-                t = translated_text[i]
-
-                if i >= len(p_block):
-                    p = p_block[-1]
+            for i in range(len(to_translate_info)):
+                p_obj, idx, original_text = to_translate_info[i]
+                trans_text = translated_list[i]
+                
+                if type(p_obj) is NavigableString:
+                    # Note: NavigableString doesn't have .string setter that works well here
+                    # But in this loop, we handle it
+                    pass 
                 else:
-                    p = p_block[i]
-
-                if type(p) is NavigableString:
-                    p = t
-                else:
-                    p.string = t
+                    p_obj.string = trans_text
 
                 self.helper.insert_trans(
-                    p, p.string, self.translation_style, self.single_translate
+                    p_obj, trans_text, self.translation_style, self.single_translate
                 )
+                
+                # Update progress
+                if idx < len(self.p_to_save):
+                    self.p_to_save[idx] = trans_text
+                else:
+                    # This shouldn't happen if resume is working correctly, but for safety:
+                    while len(self.p_to_save) <= idx:
+                        self.p_to_save.append("")
+                    self.p_to_save[idx] = trans_text
 
         if thread_safe:
             with self._progress_lock:
@@ -330,6 +364,7 @@ class EPUBBookLoader(BaseBookLoader):
     def translate_paragraphs_acc(self, p_list, send_num, index, p_to_save_len, pbar=None):
         count = 0
         wait_p_list = []
+        wait_p_indices = []
         for i in range(len(p_list)):
             if global_state.is_cancelled:
                 print("DEBUG: Cancellation detected in translate_paragraphs_acc")
@@ -337,10 +372,8 @@ class EPUBBookLoader(BaseBookLoader):
             p = p_list[i]
             
             # Check if paragraph should be skipped (special text, empty, etc.)
-            # We must do this BEFORE resume check to ensure index alignment
             temp_p = copy(p)
             for p_exclude in self.exclude_translate_tags.split(","):
-                # for issue #280
                 if type(p) is NavigableString:
                     continue
                 for pt in temp_p.find_all(p_exclude):
@@ -350,53 +383,56 @@ class EPUBBookLoader(BaseBookLoader):
                 [not p.text, self._is_special_text(temp_p.text), not_trans(temp_p.text)]
             ):
                 if i == len(p_list) - 1:
-                    self._deal_old_acc(wait_p_list, pbar)
+                    self._deal_old_acc(wait_p_list, wait_p_indices, pbar)
                 continue
 
-            # Resume check: if we have a saved translation for this paragraph, use it
+            # Resume check
             if index < p_to_save_len:
-                # Use saved translation
                 saved_text = self.p_to_save[index]
-                self.helper.insert_trans(
-                    p, saved_text, self.translation_style, self.single_translate
-                )
-                index += 1
-                continue
+                # Smart Resume: If translation is identical to source, re-translate
+                if saved_text.strip() == temp_p.text.strip() and not self._is_special_text(temp_p.text):
+                    print(f"Refining untranslated block at index {index}...")
+                else:
+                    self.helper.insert_trans(
+                        p, saved_text, self.translation_style, self.single_translate
+                    )
+                    index += 1
+                    continue
 
             print(f"translating {i}/{len(p_list)}")
             
             length = num_tokens_from_text(temp_p.text)
             if length > send_num:
-                self._deal_new_acc(p, wait_p_list, pbar)
-                # After deal_new, one paragraph is processed
+                self._deal_new_acc(p, index, wait_p_list, wait_p_indices, pbar)
                 index += 1
                 continue
             if i == len(p_list) - 1:
                 if count + length < send_num:
                     wait_p_list.append(p)
-                    self._deal_old_acc(wait_p_list, pbar)
+                    wait_p_indices.append(index)
+                    self._deal_old_acc(wait_p_list, wait_p_indices, pbar)
                 else:
-                    self._deal_new_acc(p, wait_p_list, pbar)
-                # After processing the last batch or item, update index
-                pass
+                    self._deal_new_acc(p, index, wait_p_list, wait_p_indices, pbar)
+                index += 1
                 break
             if count + length < send_num:
                 count += length
                 wait_p_list.append(p)
+                wait_p_indices.append(index)
+                index += 1
             else:
-                self._deal_old_acc(wait_p_list, pbar)
-                # deal_old_acc clears wait_p_list, so we add current p to new batch
+                self._deal_old_acc(wait_p_list, wait_p_indices, pbar)
                 wait_p_list.append(p)
+                wait_p_indices.append(index)
                 count = length
+                index += 1
                 
-        # Return updated index to ensure correct resume behavior across chapters
         return index
 
-    def _deal_old_acc(self, wait_p_list, pbar=None):
+    def _deal_old_acc(self, wait_p_list, wait_p_indices, pbar=None):
         if not wait_p_list:
             return
         
-        # Extract text
         text_list = []
         for p in wait_p_list:
             if hasattr(p, 'text'):
@@ -404,13 +440,12 @@ class EPUBBookLoader(BaseBookLoader):
             else:
                 text_list.append(str(p))
 
-        # Translate
         result_txt_list = self.translate_model.translate_list(text_list)
         
-        # Insert and Save
         for i in range(len(wait_p_list)):
             if i < len(result_txt_list):
                 p = wait_p_list[i]
+                idx = wait_p_indices[i]
                 trans_text = result_txt_list[i]
                 from .helper import shorter_result_link
                 trans_text = shorter_result_link(trans_text)
@@ -421,17 +456,21 @@ class EPUBBookLoader(BaseBookLoader):
                     self.translation_style,
                     self.single_translate,
                 )
-                # Save to p_to_save for resume
-                self.p_to_save.append(trans_text)
+                # Update or append progress record
+                if idx < len(self.p_to_save):
+                    self.p_to_save[idx] = trans_text
+                else:
+                    self.p_to_save.append(trans_text)
                 if pbar:
                     pbar.update(1)
         
         wait_p_list.clear()
+        wait_p_indices.clear()
         self._save_progress()
 
-    def _deal_new_acc(self, p, wait_p_list, pbar=None):
+    def _deal_new_acc(self, p, index, wait_p_list, wait_p_indices, pbar=None):
         # First process any pending batch
-        self._deal_old_acc(wait_p_list, pbar)
+        self._deal_old_acc(wait_p_list, wait_p_indices, pbar)
         
         # Translate current single large paragraph
         from .helper import shorter_result_link
@@ -443,8 +482,11 @@ class EPUBBookLoader(BaseBookLoader):
             self.translation_style,
             self.single_translate,
         )
-        # Save to p_to_save
-        self.p_to_save.append(trans_text)
+        # Update or append
+        if index < len(self.p_to_save):
+            self.p_to_save[index] = trans_text
+        else:
+            self.p_to_save.append(trans_text)
         if pbar:
             pbar.update(1)
         self._save_progress()

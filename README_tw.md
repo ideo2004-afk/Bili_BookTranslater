@@ -1,4 +1,4 @@
-# Bili (AI 雙語電子書製作工具) v1.2.7
+# Bili (AI 雙語電子書製作工具) v1.3.0
 
 這是一個利用 AI (ChatGPT, Gemini, Ollama 等) 來協助翻譯 EPUB/TXT/SRT 電子書與字幕的工具。專為製作高品質的雙語電子書而設計，特別針對繁體中文環境台灣慣用語進行了優化。
 
@@ -29,9 +29,9 @@ gui/assets/screenshot02.png
 
 ---
 
-## 📢 最新版本 (Release v1.2.7)
+## 📢 最新版本 (Release v1.3.0)
 
-目前已釋出 **v1.2.7** 版本，提供包含 macOS 環境的 GUI 介面應用程式 (`.dmg`)，請至 [Releases](https://github.com/ideo2004-afk/Bili_BookTranslater/releases) 頁面下載使用。
+目前已釋出 **v1.3.0** 版本，提供包含 macOS 環境的 GUI 介面應用程式 (`.dmg`)，請至 [Releases](https://github.com/ideo2004-afk/Bili_BookTranslater/releases) 頁面下載使用。
 
 *(初次執行若遇安全性阻擋，請至「系統設定」>「隱私權與安全性」> 選擇「仍要打開」)*
 

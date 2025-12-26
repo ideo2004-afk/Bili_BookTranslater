@@ -71,10 +71,12 @@ class SRTBookLoader(BaseBookLoader, AccumulationMixin):
         self.context_flag = context_flag
         self.parallel_workers = max(1, parallel_workers)
 
-        self.resume = resume
-        self.bin_path = f"{Path(srt_name).parent}/.{Path(srt_name).stem}.temp.bin"
         if self.resume:
             self.load_state()
+
+    @staticmethod
+    def _is_special_text(text):
+        return text.isdigit() or text.isspace() or len(text) == 0
 
     def _make_new_book(self, book):
         pass
@@ -138,10 +140,9 @@ class SRTBookLoader(BaseBookLoader, AccumulationMixin):
         p_to_save_len = len(self.p_to_save)
 
         try:
-            if self.accumulated_num > 1:
-                self.translate_paragraphs_acc(self.origin_book, self.accumulated_num, index, p_to_save_len)
-            else:
-                self.translate_paragraphs_acc(self.origin_book, self.accumulated_num, index, p_to_save_len)
+            # Standardize logic to use filtered list for correct index tracking in Mixin
+            p_list = [sub for sub in self.origin_book if not self._is_special_text(sub.text)]
+            self.translate_paragraphs_acc(p_list, self.accumulated_num, index, p_to_save_len)
 
             self.save_file(
                 f"{Path(self.srt_name).parent}/{Path(self.srt_name).stem}_bili.srt"

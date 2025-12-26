@@ -71,7 +71,7 @@ class TXTBookLoader(BaseBookLoader, AccumulationMixin):
 
     @staticmethod
     def _is_special_text(text):
-        return text.isdigit() or text.isspace() or len(text) == 0
+        return text.isdigit() or text.isspace() or len(text) == 0 or text.strip() == ""
 
     def _make_new_book(self, book):
         pass
@@ -102,15 +102,9 @@ class TXTBookLoader(BaseBookLoader, AccumulationMixin):
         p_to_save_len = len(self.p_to_save)
 
         try:
-            if self.accumulated_num > 1:
-                self.translate_paragraphs_acc(self.origin_book, self.accumulated_num, index, p_to_save_len)
-            else:
-                # Fallback to old behavior but using Msg objects? 
-                # Or just force accumulation logic with accumulated_num=1 (which is essentially line by line)
-                # The Mixin handles batching logic. If accumulated_num is small, it just sends frequently.
-                # Let's reuse the Mixin logic for consistency, it handles single items if they exceed limit or list is processed.
-                # Actually, if generated config has accumulated_num=1, we should probably stick to Mixin for consistency.
-                self.translate_paragraphs_acc(self.origin_book, self.accumulated_num, index, p_to_save_len)
+            # We use AccumulationMixin for everything now for consistency
+            p_list = [msg for msg in self.origin_book if not self._is_special_text(msg.text)]
+            self.translate_paragraphs_acc(p_list, self.accumulated_num, index, p_to_save_len)
 
             self.save_file(
                 f"{Path(self.txt_name).parent}/{Path(self.txt_name).stem}_bili.txt"
