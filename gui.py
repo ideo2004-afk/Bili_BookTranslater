@@ -812,7 +812,7 @@ class MainWindow(QMainWindow):
                     "selected_model_display": "gemini-2.0-flash"}
         self.cfg = load_config(defaults)
 
-        self.setWindowTitle("Bili 原文書翻譯 v1.2.7")
+        self.setWindowTitle("Bili 原文書翻譯")
         self.resize(900, 700)
         self.setAcceptDrops(True)
         self.setUnifiedTitleAndToolBarOnMac(True)
@@ -1416,7 +1416,7 @@ class MainWindow(QMainWindow):
             card.update_status(status, 0, self._fmt_sec(elapsed), "00:00")
             self.should_continue_queue = False
         elif rc == 0:
-            status = "完成 (v1.2.7)" # Keep UI clean
+            status = "完成" # Keep UI clean
             card.update_status(status, 100, self._fmt_sec(elapsed), "00:00")
             # Ensure we continue
             self.should_continue_queue = True
