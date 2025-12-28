@@ -35,6 +35,7 @@ class AccumulationMixin:
                 else:
                     is_special = text_content.strip() == "" or text_content.isdigit()
 
+                # Improved detection: identical or nearly identical text usually means translation failed
                 if saved_text.strip() == text_content.strip() and not is_special:
                     print(f"Refining untranslated block at index {current_idx}...")
                 else:
