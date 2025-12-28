@@ -972,7 +972,7 @@ class MainWindow(QMainWindow):
         self.status_label.setObjectName("StatusLabel")
         self.status_bar.addWidget(self.status_label, 1) # Stretch factor 1 to center
         
-        version_label = QLabel("by @Lee 2025 v1.3.0")
+        version_label = QLabel("by @Lee 2025 v1.3.1")
         version_label.setObjectName("VersionLabel")
         self.status_bar.addPermanentWidget(version_label)
 

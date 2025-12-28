@@ -16,35 +16,33 @@ class AccumulationMixin:
     def translate_paragraphs_acc(self, p_list, send_num, index, p_to_save_len):
         count = 0
         wait_p_list = []
+        wait_p_indices = []
         
-        # Determine starting point based on resume
-        # p_list contains all valid paragraphs.
-        
-        current_idx = 0
+        current_idx = index
         
         for i, p in enumerate(p_list):
             if global_state.is_cancelled:
                 raise KeyboardInterrupt("Cancelled by user")
             
+            text_content = p.text if hasattr(p, 'text') else str(p)
+
             # Resume check
             if current_idx < p_to_save_len and self.resume:
-                # Already translated
-                # For Mixin usage, we might need a way to verify if we need to call update
-                # In docx_loader, we called _update_paragraph to ensure the doc object has the text.
-                # Since p_to_save holds the text:
-                temp = self.p_to_save[current_idx]
-                self._update_paragraph(p, temp)
-                current_idx += 1
-                continue
+                saved_text = self.p_to_save[current_idx]
+                # Smart Resume: If translation is identical to source, re-translate
+                if hasattr(self, '_is_special_text'):
+                    is_special = self._is_special_text(text_content)
+                else:
+                    is_special = text_content.strip() == "" or text_content.isdigit()
+
+                if saved_text.strip() == text_content.strip() and not is_special:
+                    print(f"Refining untranslated block at index {current_idx}...")
+                else:
+                    self._update_paragraph(p, saved_text)
+                    current_idx += 1
+                    continue
 
             # Need translation
-            # We assume p has a .text attribute or is a string. 
-            # If p is a complex object, _update_paragraph handles the update, 
-            # but for token counting we need text.
-            # Let's assume p.text works (docx, and our future wrappers).
-            # If p is just string (unlikely for objects we want to update in place), we might need handling.
-            # In our plan: TXT/MD/SRT will use wrapper objects.
-            
             length = num_tokens_from_text(text_content)
             
             # If a single paragraph is too long, process immediately

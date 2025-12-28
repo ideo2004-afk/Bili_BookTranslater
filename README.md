@@ -1,4 +1,4 @@
-# Bili (v1.3.0)
+# Bili (v1.3.1)
 
 This is a tool that utilizes AI (ChatGPT, Gemini, Ollama, etc.) to assist in translating EPUB/TXT/SRT e-books and subtitles. Designed for creating high-quality bilingual e-books, specifically optimized for Traditional Chinese (Taiwan) usage.
 
@@ -29,9 +29,9 @@ gui/assets/screenshot02.png
 
 ---
 
-## 📢 Latest Release (v1.3.0)
+## 📢 Latest Release (v1.3.1)
 
-**v1.3.0** is now available, including a GUI application for macOS (`.dmg`). Please download it from the [Releases](https://github.com/ideo2004-afk/Bili_BookTranslater/releases) page.
+**v1.3.1** is now available, including a GUI application for macOS (`.dmg`). Please download it from the [Releases](https://github.com/ideo2004-afk/Bili_BookTranslater/releases) page.
 
 *(If blocked by security settings on first run, go to "System Settings" > "Privacy & Security" > Select "Open Anyway")*
 
